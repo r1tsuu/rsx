@@ -1,69 +1,72 @@
-use crate::{parser::Expression, tokenizer::TokenKind};
+use crate::{
+    parser::Expression,
+    tokenizer::{Token, TokenKind},
+};
 
-pub fn evaluate_expression(expression: &mut Expression) -> f32 {
+pub fn evaluate_expression(expression: &Expression) -> f32 {
     match expression {
         Expression::Program { expressions } => {
-            let mut first_expr = expressions.get(0).unwrap().clone();
-            evaluate_expression(&mut first_expr)
+            let first_expr = expressions.get(0).unwrap();
+            let reordered = &reorder_expression(first_expr.clone());
+            evaluate_expression(reordered)
         }
         Expression::NumberLiteral { value } => *value,
-        Expression::BinaryOp { left, op, right } => {
-            reorder_expression(left);
-            reorder_expression(right);
-
-            match op.kind {
-                TokenKind::Plus => evaluate_expression(left) + evaluate_expression(right),
-                TokenKind::Minus => evaluate_expression(left) - evaluate_expression(right),
-                TokenKind::Multiply => evaluate_expression(left) * evaluate_expression(right),
-                TokenKind::Divide => evaluate_expression(left) / evaluate_expression(right),
-                _ => {
-                    todo!()
-                }
+        Expression::BinaryOp { left, op, right } => match op.kind {
+            TokenKind::Plus => evaluate_expression(left) + evaluate_expression(right),
+            TokenKind::Minus => evaluate_expression(left) - evaluate_expression(right),
+            TokenKind::Multiply => evaluate_expression(left) * evaluate_expression(right),
+            TokenKind::Divide => evaluate_expression(left) / evaluate_expression(right),
+            _ => {
+                todo!()
             }
-        }
+        },
         _ => {
             todo!()
         }
     }
 }
 
-fn get_precedence(kind: &TokenKind) -> i32 {
-    match kind {
-        TokenKind::Plus | TokenKind::Minus => 1,
-        TokenKind::Multiply | TokenKind::Divide => 2,
-        _ => 0, // Default precedence for unsupported operators
-    }
-}
-
-pub fn reorder_expression(expression: &mut Box<Expression>) {
-    match **expression {
+fn reorder_expression(expr: Expression) -> Expression {
+    match expr {
         Expression::BinaryOp { left, op, right } => {
-            // Recursively reorder the right expression
+            let left = reorder_expression(*left);
+            let right = reorder_expression(*right);
 
-            // Temporarily take the mutable reference to avoid borrowing conflicts
             if let Expression::BinaryOp {
                 left: right_left,
                 op: right_op,
                 right: right_right,
-            } = right.as_mut()
+            } = right.clone()
             {
-                if get_precedence(&right_op.kind) > get_precedence(&op.kind) {}
+                if get_precedence(&op) > get_precedence(&right_op) {
+                    let new_left = Expression::BinaryOp {
+                        left: Box::from(left),
+                        op,
+                        right: right_left,
+                    };
+
+                    return Expression::BinaryOp {
+                        left: Box::from(new_left),
+                        op: right_op,
+                        right: right_right,
+                    };
+                }
             }
+
+            return Expression::BinaryOp {
+                left: Box::from(left),
+                op,
+                right: Box::from(right),
+            };
         }
-        _ => {}
+        _ => expr,
     }
 }
 
-fn x(a: impl Into<i32>) {
-    let d = 32;
-    x(d);
-
-    let mut a = 1;
-    let mut b = 2;
-
-    let mut z = &Box::new(a);
-    let mut f = &Box::new(b);
-    let a = **z;
-
-    std::mem::swap(&mut z, &mut f);
+fn get_precedence(token: &Token) -> i32 {
+    match token.kind {
+        TokenKind::Plus | TokenKind::Minus => 1,
+        TokenKind::Multiply | TokenKind::Divide => 2,
+        _ => 0, // Default precedence for unsupported operators
+    }
 }

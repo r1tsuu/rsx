@@ -9,7 +9,7 @@ mod parser;
 mod tokenizer;
 
 fn main() -> ExitCode {
-    let code = String::from("2*5+2");
+    let code = String::from("(2+4)*4");
 
     let tokenizer = Tokenizer::from_source(code);
     let mut tokens: Vec<Token> = vec![];
