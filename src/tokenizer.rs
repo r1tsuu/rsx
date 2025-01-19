@@ -28,6 +28,13 @@ pub struct Token {
 }
 
 impl Token {
+    pub fn is_semicolon(&self) -> bool {
+        match self.kind {
+            TokenKind::Semicolon => true,
+            _ => false,
+        }
+    }
+
     pub fn is_arithmetic_operator(&self) -> bool {
         match self.kind {
             TokenKind::Divide | TokenKind::Minus | TokenKind::Plus | TokenKind::Multiply => true,

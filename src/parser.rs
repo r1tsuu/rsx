@@ -51,7 +51,7 @@ impl Parser {
                 None => return Err(EngineError::parser_error("parse_program Unexpected token")),
             };
 
-            if token.kind != TokenKind::Semicolon {
+            if !token.is_semicolon() {
                 match self.parse_expression() {
                     Ok(expr) => {
                         expressions.push(expr);
@@ -80,9 +80,11 @@ impl Parser {
             TokenKind::Number => self.parse_number(),
             TokenKind::OpenParen => self.parse_oparen(),
             TokenKind::Let => self.parse_let(),
-            // TokenKind::Semicolon => None,
             TokenKind::Identifier => self.parse_identifier(),
-            _ => unreachable!(),
+            _ => Err(EngineError::parser_error(format!(
+                "Unexpected token {:#?}",
+                token
+            ))),
         }
     }
 
@@ -228,6 +230,10 @@ impl Parser {
 
         match self.tokens.get(self.current_token) {
             Some(next_token) => {
+                if next_token.is_semicolon() {
+                    return Ok(expr);
+                }
+
                 if !next_token.is_arithmetic_operator() {
                     return Err(EngineError::parser_error(
                         "Expected arithmetic operator as next token after Paren",
