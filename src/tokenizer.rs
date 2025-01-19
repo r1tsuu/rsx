@@ -1,3 +1,5 @@
+use crate::error::EngineError;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     Number,
@@ -26,12 +28,21 @@ pub struct Token {
 }
 
 impl Token {
+    pub fn is_arithmetic_operator(&self) -> bool {
+        match self.kind {
+            TokenKind::Divide | TokenKind::Minus | TokenKind::Plus | TokenKind::Multiply => true,
+            _ => false,
+        }
+    }
+}
+
+impl Token {
     fn build(
         tokenizer: &mut Tokenizer,
         kind: TokenKind,
         text: String,
         start: usize,
-    ) -> Option<Result<Token, TokenizerError>> {
+    ) -> Option<Result<Token, EngineError>> {
         let token = Token {
             kind,
             text,
@@ -68,36 +79,6 @@ impl Cursor {
     }
 }
 
-#[derive(Debug)]
-pub enum TokenizerError {
-    UnknownToken {
-        char: String,
-        column: usize,
-        position: usize,
-        line: usize,
-    },
-}
-
-impl TokenizerError {
-    pub fn message(&self) -> String {
-        match self {
-            TokenizerError::UnknownToken {
-                char,
-                column,
-                position,
-                line,
-            } => format!(
-                "Unknown token '{}' on position: '{}', line: '{}', column: '{}'",
-                char, position, line, column
-            ),
-        }
-    }
-
-    pub fn print(&self) {
-        eprintln!("{}", self.message());
-    }
-}
-
 impl Tokenizer {
     pub fn from_source(source: String) -> Self {
         Tokenizer {
@@ -125,7 +106,7 @@ impl Tokenizer {
         self.increment_position();
     }
 
-    fn next_token(&mut self) -> Option<Result<Token, TokenizerError>> {
+    fn next_token(&mut self) -> Option<Result<Token, EngineError>> {
         let char = self.chars.get(self.cursor.position - 1);
 
         match char {
@@ -159,12 +140,11 @@ impl Tokenizer {
                     }
 
                     if digit.ends_with(".") {
-                        return Some(Err(TokenizerError::UnknownToken {
-                            char: digit,
-                            column: self.cursor.column,
-                            position: self.cursor.position,
-                            line: self.cursor.line,
-                        }));
+                        return Some(Err(EngineError::tokenizer_unknown_token(
+                            digit,
+                            self.cursor.column,
+                            self.cursor.line,
+                        )));
                     }
 
                     return Token::build(self, TokenKind::Number, digit, start);
@@ -207,12 +187,11 @@ impl Tokenizer {
                     '}' => Token::build(self, TokenKind::CloseBrace, char_str, start),
                     ';' => Token::build(self, TokenKind::Semicolon, char_str, start),
                     '=' => Token::build(self, TokenKind::Equals, char_str, start),
-                    _ => Some(Err(TokenizerError::UnknownToken {
-                        char: char_str,
-                        column: self.cursor.column,
-                        position: self.cursor.position,
-                        line: self.cursor.line,
-                    })),
+                    _ => Some(Err(EngineError::tokenizer_unknown_token(
+                        char_str,
+                        self.cursor.column,
+                        self.cursor.line,
+                    ))),
                 };
             }
 
@@ -228,7 +207,7 @@ pub struct TokenizerIterator {
 }
 
 impl Iterator for TokenizerIterator {
-    type Item = Result<Token, TokenizerError>;
+    type Item = Result<Token, EngineError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.tokenizer.next_token()

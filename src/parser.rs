@@ -1,4 +1,7 @@
-use crate::tokenizer::{Token, TokenKind};
+use crate::{
+    error::EngineError,
+    tokenizer::{Token, TokenKind},
+};
 
 #[derive(Debug, Clone)]
 pub enum Expression {
@@ -39,122 +42,155 @@ impl Parser {
         }
     }
 
-    pub fn parse_program(&mut self) -> Expression {
+    pub fn parse_program(&mut self) -> Result<Expression, EngineError> {
         let mut expressions = vec![];
 
         while self.current_token < self.tokens.len() {
-            let expression = self.parse_expression();
-            if let Some(expression) = expression {
-                expressions.push(expression);
+            let token = match self.tokens.get(self.current_token) {
+                Some(val) => val,
+                None => return Err(EngineError::parser_error("parse_program Unexpected token")),
+            };
+
+            if token.kind != TokenKind::Semicolon {
+                match self.parse_expression() {
+                    Ok(expr) => {
+                        expressions.push(expr);
+                    }
+                    Err(err) => return Err(err),
+                }
             }
+
             self.current_token += 1;
         }
 
-        Expression::Program { expressions }
+        Ok(Expression::Program { expressions })
     }
 
-    fn parse_expression(&mut self) -> Option<Expression> {
-        let token = self.tokens.get(self.current_token).unwrap();
+    fn parse_expression(&mut self) -> Result<Expression, EngineError> {
+        let token = match self.tokens.get(self.current_token) {
+            Some(val) => val,
+            None => {
+                return Err(EngineError::parser_error(
+                    "parse_expression Unexpected token",
+                ))
+            }
+        };
 
         match token.kind {
             TokenKind::Number => self.parse_number(),
             TokenKind::OpenParen => self.parse_oparen(),
             TokenKind::Let => self.parse_let(),
-            TokenKind::Semicolon => None,
+            // TokenKind::Semicolon => None,
             TokenKind::Identifier => self.parse_identifier(),
             _ => unreachable!(),
         }
     }
 
-    fn parse_let(&mut self) -> Option<Expression> {
-        let token = self.tokens.get(self.current_token).unwrap();
-        let expect_identifier_token = self.tokens.get(self.current_token + 1);
+    fn parse_let(&mut self) -> Result<Expression, EngineError> {
+        match self.tokens.get(self.current_token) {
+            None => return Err(EngineError::parser_error("Unexpected let")),
+            _ => {}
+        };
 
-        if let Some(expect_identifier_token) = expect_identifier_token {
-            if expect_identifier_token.kind != TokenKind::Identifier {
-                panic!()
+        let expect_identifier_token = match self.tokens.get(self.current_token + 1) {
+            Some(val) => val,
+            None => {
+                return Err(EngineError::parser_error(
+                    "Expected identifier token after let",
+                ))
             }
+        };
 
-            let expect_equals_token = self.tokens.get(self.current_token + 2);
-
-            if let Some(expect_equals_token) = expect_equals_token {
-                if expect_equals_token.kind != TokenKind::Equals {
-                    panic!()
-                }
-
-                self.current_token += 3;
-
-                let expect_identifier_token = expect_identifier_token.clone();
-                let initializer_expression = self.parse_expression().unwrap();
-
-                return Some(Expression::LetVariableDeclaration {
-                    name: expect_identifier_token.text,
-                    initializer: Box::from(initializer_expression),
-                });
-            }
+        if expect_identifier_token.kind != TokenKind::Identifier {
+            return Err(EngineError::parser_error(
+                "Expected identifier token after let",
+            ));
         }
 
-        panic!()
+        let expect_equals_token = match self.tokens.get(self.current_token + 2) {
+            Some(val) => val,
+            None => {
+                return Err(EngineError::parser_error(
+                    "Expected equals token after let and identifier",
+                ))
+            }
+        };
+
+        if expect_equals_token.kind != TokenKind::Equals {
+            return Err(EngineError::parser_error(
+                "Expected equals token after let and identifier",
+            ));
+        }
+
+        self.current_token += 3;
+
+        let expect_identifier_token = expect_identifier_token.clone();
+
+        match self.parse_expression() {
+            Ok(expr) => Ok(Expression::LetVariableDeclaration {
+                name: expect_identifier_token.text,
+                initializer: Box::from(expr),
+            }),
+            Err(err) => Err(err),
+        }
     }
 
-    fn parse_number(&mut self) -> Option<Expression> {
-        let token = self.tokens.get(self.current_token).unwrap();
-        let next_token = self.tokens.get(self.current_token + 1);
+    fn parse_number(&mut self) -> Result<Expression, EngineError> {
+        let token = match self.tokens.get(self.current_token) {
+            Some(val) => val.clone(),
+            None => return Err(EngineError::parser_error("Unexpected number")),
+        };
 
-        match next_token {
-            Some(next_token) => match next_token.kind {
-                TokenKind::Divide | TokenKind::Minus | TokenKind::Plus | TokenKind::Multiply => {
-                    let binary = self.parse_binary_op_expression();
-
-                    if let Some(binary) = binary {
-                        return Some(binary);
-                    }
-
-                    return None;
-                }
-                _ => {
-                    return Some(Expression::NumberLiteral {
+        match self.tokens.get(self.current_token + 1) {
+            Some(next_token) => {
+                if !next_token.is_arithmetic_operator() {
+                    return Ok(Expression::NumberLiteral {
                         value: token.text.parse::<f32>().unwrap(),
                     });
                 }
-            },
-            None => Some(Expression::NumberLiteral {
+
+                self.parse_binary_op_expression()
+            }
+            None => Ok(Expression::NumberLiteral {
                 value: token.text.parse::<f32>().unwrap(),
             }),
         }
     }
 
-    fn parse_identifier(&mut self) -> Option<Expression> {
-        let token = self.tokens.get(self.current_token).unwrap().clone();
-        let next_token = self.tokens.get(self.current_token + 1);
+    fn parse_identifier(&mut self) -> Result<Expression, EngineError> {
+        let token = match self.tokens.get(self.current_token) {
+            Some(val) => val.clone(),
+            None => return Err(EngineError::parser_error("Unexpected identifier")),
+        };
 
-        match next_token {
-            Some(next_token) => match next_token.kind {
-                TokenKind::Divide | TokenKind::Minus | TokenKind::Plus | TokenKind::Multiply => {
-                    let binary = self.parse_binary_op_expression();
-
-                    if let Some(binary) = binary {
-                        return Some(binary);
-                    }
-
-                    return None;
+        match self.tokens.get(self.current_token + 1) {
+            Some(next_token) => {
+                if !next_token.is_arithmetic_operator() {
+                    return Ok(Expression::Identifier { name: token.text });
                 }
-                _ => {
-                    return Some(Expression::Identifier { name: token.text });
-                }
-            },
-            None => Some(Expression::Identifier { name: token.text }),
+
+                self.parse_binary_op_expression()
+            }
+            None => Ok(Expression::Identifier { name: token.text }),
         }
     }
 
-    fn parse_oparen(&mut self) -> Option<Expression> {
+    fn parse_oparen(&mut self) -> Result<Expression, EngineError> {
         let mut extra_paren: usize = 0;
         let mut found_close = false;
         self.current_token += 1;
         let start = self.current_token;
 
         while self.current_token < self.tokens.len() {
-            let token = &self.tokens[self.current_token];
+            let token = match self.tokens.get(self.current_token) {
+                Some(val) => val,
+                None => {
+                    return Err(EngineError::parser_error(format!(
+                        "parse_oparen token not found on pos {}",
+                        self.current_token
+                    )));
+                }
+            };
 
             if token.kind == TokenKind::OpenParen {
                 extra_paren += 1;
@@ -172,56 +208,66 @@ impl Parser {
         }
 
         if !found_close {
-            eprintln!("ERR NOT FOUND CLOSE PAREN");
-            panic!("");
+            return Err(EngineError::parser_error("Expected closed OParen"));
         }
 
         let spliced = &self.tokens[start..self.current_token + 1];
 
         let mut parser = Self::new(spliced.to_vec());
-        let expression = parser.parse_expression();
+
+        let expression = match parser.parse_expression() {
+            Ok(val) => val,
+            Err(err) => return Err(err),
+        };
 
         self.current_token += parser.current_token;
 
-        let next_token = self.tokens.get(self.current_token);
+        let expr = Expression::Parenthesized {
+            expression: Box::from(expression),
+        };
 
-        if let Some(expression) = expression {
-            let expr = Expression::Parenthesized {
-                expression: Box::from(expression),
-            };
+        match self.tokens.get(self.current_token) {
+            Some(next_token) => {
+                if !next_token.is_arithmetic_operator() {
+                    return Err(EngineError::parser_error(
+                        "Expected arithmetic operator as next token after Paren",
+                    ));
+                }
 
-            if let Some(next_token) = next_token {
-                match next_token.kind {
-                    TokenKind::Divide
-                    | TokenKind::Minus
-                    | TokenKind::Plus
-                    | TokenKind::Multiply => {
-                        let op = next_token.clone();
-                        self.current_token += 1;
-                        let right = self.parse_expression();
+                let op = next_token.clone();
+                self.current_token += 1;
 
-                        if let Some(right) = right {
-                            return Some(Expression::BinaryOp {
-                                left: Box::from(expr),
-                                op,
-                                right: Box::from(right),
-                            });
-                        }
-                    }
-                    _ => {}
+                match self.parse_expression() {
+                    Ok(right) => Ok(Expression::BinaryOp {
+                        left: Box::from(expr),
+                        op,
+                        right: Box::from(right),
+                    }),
+                    Err(err) => Err(err),
                 }
             }
-
-            return Some(expr);
+            None => Ok(expr),
         }
-
-        return None;
     }
 
-    fn parse_binary_op_expression(&mut self) -> Option<Expression> {
-        let left_token = self.tokens.get(self.current_token).unwrap();
+    fn parse_binary_op_expression(&mut self) -> Result<Expression, EngineError> {
+        let left_token = match self.tokens.get(self.current_token) {
+            Some(val) => val,
+            None => {
+                return Err(EngineError::parser_error(
+                    "parse_binary_op_expression expected token",
+                ));
+            }
+        };
 
-        let op = self.tokens.get(self.current_token + 1).unwrap().clone();
+        let op = match self.tokens.get(self.current_token + 1) {
+            Some(val) => val.clone(),
+            None => {
+                return Err(EngineError::parser_error(
+                    "parse_binary_op_expression expected operator",
+                ))
+            }
+        };
 
         self.current_token += 2;
 
@@ -232,19 +278,21 @@ impl Parser {
             TokenKind::Number => Box::from(Expression::NumberLiteral {
                 value: left_token.text.parse::<f32>().unwrap(),
             }),
-            _ => panic!(),
+            _ => {
+                return Err(EngineError::parser_error(format!(
+                    "parse_binary_op_expression unexpected left token {:#?}",
+                    left_token
+                )));
+            }
         };
 
-        let right = self.parse_expression();
-
-        if let Some(right) = right {
-            return Some(Expression::BinaryOp {
+        match self.parse_expression() {
+            Ok(right) => Ok(Expression::BinaryOp {
                 left,
                 op,
                 right: Box::from(right),
-            });
+            }),
+            Err(err) => Err(err),
         }
-
-        return None;
     }
 }

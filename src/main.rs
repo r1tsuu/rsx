@@ -4,12 +4,13 @@ use interpreter::evaluate_expression;
 use parser::Parser;
 use tokenizer::{Token, Tokenizer};
 
+mod error;
 mod interpreter;
 mod parser;
 mod tokenizer;
 
 fn main() -> ExitCode {
-    let code = String::from("let x = 1+123; let b = a+1");
+    let code = String::from("let x = 1+123; let b = 2+123123;x=1;");
 
     let tokenizer = Tokenizer::from_source(code);
     let mut tokens: Vec<Token> = vec![];
