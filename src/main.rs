@@ -1,12 +1,15 @@
 use std::process::ExitCode;
 
+use interpreter::evaluate_expression;
+use parser::Parser;
 use tokenizer::{Token, Tokenizer};
 
+mod interpreter;
 mod parser;
 mod tokenizer;
 
 fn main() -> ExitCode {
-    let code = String::from("1 + 43 + 1");
+    let code = String::from("2*5+2");
 
     let tokenizer = Tokenizer::from_source(code);
     let mut tokens: Vec<Token> = vec![];
@@ -16,16 +19,18 @@ fn main() -> ExitCode {
             Ok(token) => {
                 tokens.push(token);
             }
-            Err(msg) => {
-                eprintln!("{}", msg);
+            Err(err) => {
+                err.print();
                 return ExitCode::FAILURE;
             }
         }
     }
 
-    println!("---TOKENS---");
-    println!("{:#?}", tokens);
-    println!("---TOKENS---");
+    let mut parser = Parser::new(tokens);
+
+    let expr = parser.parse_program();
+
+    println!("{}", evaluate_expression(&mut expr.clone()));
 
     return ExitCode::SUCCESS;
 }
