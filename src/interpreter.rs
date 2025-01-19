@@ -6,20 +6,35 @@ use crate::{
 pub fn evaluate_expression(expression: &Expression) -> f32 {
     match expression {
         Expression::Program { expressions } => {
-            let first_expr = expressions.get(0).unwrap();
-            let reordered = &reorder_expression(first_expr.clone());
-            evaluate_expression(reordered)
+            let mut value: Option<f32> = None;
+            for expr in expressions.iter() {
+                value = Some(evaluate_expression(expr));
+            }
+            value.unwrap_or(0.0)
         }
         Expression::NumberLiteral { value } => *value,
-        Expression::BinaryOp { left, op, right } => match op.kind {
-            TokenKind::Plus => evaluate_expression(left) + evaluate_expression(right),
-            TokenKind::Minus => evaluate_expression(left) - evaluate_expression(right),
-            TokenKind::Multiply => evaluate_expression(left) * evaluate_expression(right),
-            TokenKind::Divide => evaluate_expression(left) / evaluate_expression(right),
-            _ => {
-                todo!()
+        Expression::BinaryOp { left, op, right } => {
+            let reordered = &reorder_expression(Expression::BinaryOp {
+                left: left.clone(),
+                op: op.clone(),
+                right: right.clone(),
+            });
+
+            if let Expression::BinaryOp { left, op, right } = reordered {
+                return match op.kind {
+                    TokenKind::Plus => evaluate_expression(left) + evaluate_expression(right),
+                    TokenKind::Minus => evaluate_expression(left) - evaluate_expression(right),
+                    TokenKind::Multiply => evaluate_expression(left) * evaluate_expression(right),
+                    TokenKind::Divide => evaluate_expression(left) / evaluate_expression(right),
+                    _ => {
+                        todo!()
+                    }
+                };
             }
-        },
+
+            unreachable!()
+        }
+        Expression::Parenthesized { expression } => evaluate_expression(expression),
         _ => {
             todo!()
         }

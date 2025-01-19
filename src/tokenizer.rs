@@ -14,6 +14,7 @@ pub enum TokenKind {
     Function,
     Return,
     Identifier,
+    Equals,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +206,7 @@ impl Tokenizer {
                     '{' => Token::build(self, TokenKind::OpenBrace, char_str, start),
                     '}' => Token::build(self, TokenKind::CloseBrace, char_str, start),
                     ';' => Token::build(self, TokenKind::Semicolon, char_str, start),
+                    '=' => Token::build(self, TokenKind::Equals, char_str, start),
                     _ => Some(Err(TokenizerError::UnknownToken {
                         char: char_str,
                         column: self.cursor.column,

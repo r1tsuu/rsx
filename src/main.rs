@@ -9,7 +9,7 @@ mod parser;
 mod tokenizer;
 
 fn main() -> ExitCode {
-    let code = String::from("(2+4)*4");
+    let code = String::from("let x = 1+123; let b = a+1");
 
     let tokenizer = Tokenizer::from_source(code);
     let mut tokens: Vec<Token> = vec![];
@@ -30,7 +30,8 @@ fn main() -> ExitCode {
 
     let expr = parser.parse_program();
 
-    println!("{}", evaluate_expression(&mut expr.clone()));
+    println!("{:#?}", expr);
+    // println!("{}", evaluate_expression(&expr));
 
     return ExitCode::SUCCESS;
 }
