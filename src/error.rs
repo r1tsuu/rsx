@@ -10,6 +10,9 @@ pub enum EngineErrorKind {
     ParserError {
         message: String,
     },
+    ExecutorError {
+        message: String,
+    },
 }
 
 #[derive(Debug)]
@@ -30,6 +33,9 @@ impl EngineError {
             EngineErrorKind::ParserError { message } => {
                 format!("Parser error: {}", message,)
             }
+            EngineErrorKind::ExecutorError { message } => {
+                format!("Executor error: {}", message,)
+            }
         }
     }
 
@@ -49,7 +55,17 @@ impl EngineError {
         }
     }
 
+    pub fn executor_error<T: ToString>(message: T) -> Self {
+        Self {
+            kind: EngineErrorKind::ExecutorError {
+                message: String::from(message.to_string()),
+            },
+            backtrace: Backtrace::capture(),
+        }
+    }
+
     pub fn print(&self) {
         eprintln!("{}", self.message());
+        eprintln!("{}", self.backtrace);
     }
 }
