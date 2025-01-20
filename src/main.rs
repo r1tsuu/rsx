@@ -10,7 +10,7 @@ mod parser;
 mod tokenizer;
 
 fn main() -> ExitCode {
-    let code = String::from("let x = (1+23);");
+    let code = String::from("let x =1;");
 
     let tokenizer = Tokenizer::from_source(code);
     let mut tokens: Vec<Token> = vec![];
