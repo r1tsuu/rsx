@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, vec};
 
 use crate::javascript_object::{JavascriptObject, JavascriptObjectRef};
 
@@ -36,5 +36,19 @@ impl Memory {
 
     pub fn get_by_id(&self, id: u64) -> Option<JavascriptObjectRef> {
         self.heap.get(&id).cloned()
+    }
+
+    pub fn deallocate_except_ids(&mut self, ids: &[u64]) {
+        let mut keys_to_remove = Vec::new();
+
+        for (memory_id, _) in self.heap.iter_mut() {
+            if !ids.contains(memory_id) {
+                keys_to_remove.push(*memory_id);
+            }
+        }
+
+        for memory_id in keys_to_remove {
+            self.heap.remove(&memory_id);
+        }
     }
 }

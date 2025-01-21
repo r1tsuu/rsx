@@ -64,4 +64,12 @@ impl ExecutionScope {
             false
         }
     }
+
+    pub fn get_variable_ids(&self) -> Vec<u64> {
+        Vec::from_iter(
+            self.variables
+                .iter()
+                .map(|entry| entry.1.borrow().memory_id),
+        )
+    }
 }

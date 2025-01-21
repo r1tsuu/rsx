@@ -10,6 +10,7 @@ use crate::{
 pub struct ExecutionEngine {
     scopes: Vec<ExecutionScope>,
     memory: Memory,
+    execution_tick: u64,
 }
 
 const UNDEFINED_NAME: &str = "undefined";
@@ -19,6 +20,7 @@ impl ExecutionEngine {
         let mut engine = ExecutionEngine {
             scopes: vec![],
             memory: Memory::new(),
+            execution_tick: 0,
         };
 
         engine.initialize_global_scope();
@@ -70,7 +72,7 @@ impl ExecutionEngine {
         &mut self,
         expression: Expression,
     ) -> Result<JavascriptObjectRef, EngineError> {
-        match expression {
+        let result = match expression {
             Expression::Program { expressions } => {
                 for (index, expr) in expressions.iter().enumerate() {
                     match self.execute_expression(expr.clone()) {
@@ -161,6 +163,20 @@ impl ExecutionEngine {
                 }
             }
             Expression::StringLiteral { value } => Ok(self.memory.allocate_string(value)),
+        };
+
+        self.execution_tick += 1;
+
+        if self.execution_tick % 10 == 0 {
+            self.collect_garbage();
+        }
+
+        result
+    }
+
+    fn collect_garbage(&mut self) {
+        for scope in self.scopes.iter() {
+            self.memory.deallocate_except_ids(&scope.get_variable_ids());
         }
     }
 
