@@ -186,15 +186,9 @@ impl ExecutionEngine {
 
         self.execution_tick += 1;
 
-        println!(
-            "BEF: {:#?}",
-            self.get_current_scope().get_variable_ids().len()
-        );
-        self.collect_garbage();
-        println!(
-            "AFTER: {:#?}",
-            self.get_current_scope().get_variable_ids().len()
-        );
+        if self.execution_tick % 10 == 0 {
+            self.collect_garbage();
+        }
 
         result
     }
