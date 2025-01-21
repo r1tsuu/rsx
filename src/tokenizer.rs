@@ -18,6 +18,8 @@ pub enum TokenKind {
     Identifier,
     Equals,
     String,
+    EqualsEquals,
+    EqualsEqualsEquals,
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +51,9 @@ impl Token {
             | TokenKind::Minus
             | TokenKind::Plus
             | TokenKind::Multiply
+            | TokenKind::EqualsEquals
             | TokenKind::Equals => true,
+
             _ => false,
         }
     }
@@ -212,6 +216,34 @@ impl Tokenizer {
                     };
                 }
 
+                if char == '=' {
+                    let mut full_token = char.to_string();
+
+                    while let Some(next_char) =
+                        self.chars.get(self.cursor.position).map(char::clone)
+                    {
+                        if next_char.is_whitespace() {
+                            break;
+                        } else {
+                            self.increment_column();
+                            full_token.push(next_char);
+                        }
+                    }
+
+                    return match full_token.as_str() {
+                        "=" => Token::build(self, TokenKind::Equals, full_token, start),
+                        "==" => Token::build(self, TokenKind::EqualsEquals, full_token, start),
+                        "===" => {
+                            Token::build(self, TokenKind::EqualsEqualsEquals, full_token, start)
+                        }
+                        _ => Some(Err(EngineError::tokenizer_unknown_token(
+                            full_token,
+                            self.cursor.column,
+                            self.cursor.line,
+                        ))),
+                    };
+                }
+
                 return match char {
                     '+' => Token::build(self, TokenKind::Plus, char_str, start),
                     '-' => Token::build(self, TokenKind::Minus, char_str, start),
@@ -222,7 +254,6 @@ impl Tokenizer {
                     '{' => Token::build(self, TokenKind::OpenBrace, char_str, start),
                     '}' => Token::build(self, TokenKind::CloseBrace, char_str, start),
                     ';' => Token::build(self, TokenKind::Semicolon, char_str, start),
-                    '=' => Token::build(self, TokenKind::Equals, char_str, start),
                     _ => Some(Err(EngineError::tokenizer_unknown_token(
                         char_str,
                         self.cursor.column,

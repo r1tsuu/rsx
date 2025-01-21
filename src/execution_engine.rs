@@ -16,6 +16,8 @@ pub struct ExecutionEngine {
 }
 
 const UNDEFINED_NAME: &str = "undefined";
+const TRUE_NAME: &str = "true";
+const FALSE_NAME: &str = "false";
 
 impl ExecutionEngine {
     fn new() -> Self {
@@ -40,6 +42,8 @@ impl ExecutionEngine {
             };
         }
 
+        println!("{:#?}", Parser::new(tokens.clone()).parse_program());
+
         match Parser::new(tokens).parse_program() {
             Ok(program) => Self::new().execute_expression(program),
             Err(err) => return Err(err),
@@ -56,6 +60,20 @@ impl ExecutionEngine {
             )
             .unwrap();
 
+        global_scope
+            .define(
+                TRUE_NAME.to_string(),
+                self.memory.borrow_mut().allocate_boolean(true),
+            )
+            .unwrap();
+
+        global_scope
+            .define(
+                FALSE_NAME.to_string(),
+                self.memory.borrow_mut().allocate_boolean(false),
+            )
+            .unwrap();
+
         self.scopes.push(global_scope);
     }
 
@@ -66,6 +84,12 @@ impl ExecutionEngine {
     fn get_undefined(&self) -> JavascriptObjectRef {
         self.get_global_scope()
             .get(UNDEFINED_NAME.to_string())
+            .unwrap()
+    }
+
+    fn get_boolean(&self, value: bool) -> JavascriptObjectRef {
+        self.get_global_scope()
+            .get((if value { TRUE_NAME } else { FALSE_NAME }).to_string())
             .unwrap()
     }
 
@@ -144,35 +168,28 @@ impl ExecutionEngine {
                     return Ok(value);
                 }
 
-                let left_value =
-                    match self.evaluate_expression_to_number(Parser::reorder_expression(*left)) {
-                        Ok(val) => val,
-                        Err(err) => return Err(err),
-                    };
-
-                let right_value =
-                    match self.evaluate_expression_to_number(Parser::reorder_expression(*right)) {
-                        Ok(val) => val,
-                        Err(err) => return Err(err),
-                    };
+                let left_result = self.execute_expression(Parser::reorder_expression(*left))?;
+                let right_result = self.execute_expression(Parser::reorder_expression(*right))?;
 
                 match op.kind {
-                    TokenKind::Plus => Ok(self
-                        .memory
-                        .borrow_mut()
-                        .allocate_number(left_value + right_value)),
-                    TokenKind::Minus => Ok(self
-                        .memory
-                        .borrow_mut()
-                        .allocate_number(left_value - right_value)),
-                    TokenKind::Multiply => Ok(self
-                        .memory
-                        .borrow_mut()
-                        .allocate_number(left_value * right_value)),
-                    TokenKind::Divide => Ok(self
-                        .memory
-                        .borrow_mut()
-                        .allocate_number(left_value / right_value)),
+                    TokenKind::EqualsEquals => Ok(self
+                        .get_boolean(left_result.borrow().is_equal_to_non_strict(&right_result))),
+                    TokenKind::Plus => Ok(self.memory.borrow_mut().allocate_number(
+                        left_result.borrow().cast_to_number()
+                            + right_result.borrow().cast_to_number(),
+                    )),
+                    TokenKind::Minus => Ok(self.memory.borrow_mut().allocate_number(
+                        left_result.borrow().cast_to_number()
+                            - right_result.borrow().cast_to_number(),
+                    )),
+                    TokenKind::Multiply => Ok(self.memory.borrow_mut().allocate_number(
+                        left_result.borrow().cast_to_number()
+                            * right_result.borrow().cast_to_number(),
+                    )),
+                    TokenKind::Divide => Ok(self.memory.borrow_mut().allocate_number(
+                        left_result.borrow().cast_to_number()
+                            / right_result.borrow().cast_to_number(),
+                    )),
                     _ => Err(EngineError::execution_engine_error(format!(
                         "Failed to execute binary expression with operator: {:#?}",
                         op
@@ -198,24 +215,6 @@ impl ExecutionEngine {
             self.memory
                 .borrow_mut()
                 .deallocate_except_ids(&scope.get_variable_ids());
-        }
-    }
-
-    fn evaluate_expression_to_number(
-        &mut self,
-        expression: Expression,
-    ) -> Result<f32, EngineError> {
-        match self.execute_expression(expression) {
-            Ok(value) => match value.clone().borrow().kind {
-                JavascriptObjectKind::Number { value } => Ok(value),
-                _ => {
-                    return Err(EngineError::execution_engine_error(format!(
-                        "Binary expression accepts only numbers! {:#?} is not",
-                        value
-                    )))
-                }
-            },
-            Err(err) => return Err(err),
         }
     }
 }
