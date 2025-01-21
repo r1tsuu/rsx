@@ -103,6 +103,38 @@ impl ExecutionEngine {
                 ))),
             },
             Expression::BinaryOp { left, op, right } => {
+                if op.is_equals() {
+                    match *left.clone() {
+                        Expression::Identifier { name } => {
+                            match self.get_current_scope().get(name.clone()) {
+                                Some(var) => var,
+                                None => {
+                                    return Err(EngineError::execution_engine_error(format!(
+                                        "No variable {} found in the scope",
+                                        name
+                                    )))
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(EngineError::execution_engine_error(format!(
+                                "Expected identifier in assigment, got: {:#?}",
+                                left
+                            )))
+                        }
+                    };
+
+                    let value = match self.execute_expression(*right) {
+                        Ok(res) => res,
+                        Err(err) => return Err(err),
+                    };
+
+                    self.get_current_scope()
+                        .assign(left.unwrap_name(), value.clone());
+
+                    return Ok(value);
+                }
+
                 let left_value =
                     match self.evaluate_expression_to_number(Parser::reorder_expression(*left)) {
                         Ok(val) => val,

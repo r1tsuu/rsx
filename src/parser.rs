@@ -31,6 +31,17 @@ pub enum Expression {
     },
 }
 
+impl Expression {
+    /** Get .name in an unsafe way. Use only if you know that it has name */
+    pub fn unwrap_name(&self) -> String {
+        match self {
+            Self::Identifier { name } => name.clone(),
+            Self::LetVariableDeclaration { name, .. } => name.clone(),
+            _ => panic!(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Parser {
     tokens: Vec<Token>,
@@ -149,7 +160,7 @@ impl Parser {
 
         match self.tokens.get(self.current_token + 1) {
             Some(next_token) => {
-                if !next_token.is_arithmetic_operator() {
+                if !next_token.is_binary_operator() {
                     return Ok(Expression::NumberLiteral {
                         value: token.text.parse::<f32>().unwrap(),
                     });
@@ -180,7 +191,7 @@ impl Parser {
 
         match self.tokens.get(self.current_token + 1) {
             Some(next_token) => {
-                if !next_token.is_arithmetic_operator() {
+                if !next_token.is_binary_operator() {
                     return Ok(Expression::Identifier { name: token.text });
                 }
 
@@ -247,7 +258,7 @@ impl Parser {
                     return Ok(expr);
                 }
 
-                if !next_token.is_arithmetic_operator() {
+                if !next_token.is_binary_operator() {
                     return Err(EngineError::parser_error(
                         "Expected arithmetic operator as next token after Paren",
                     ));

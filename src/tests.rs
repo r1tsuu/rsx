@@ -16,6 +16,13 @@ fn test_basic_variables() {
 }
 
 #[test]
+fn test_basic_variables_changing() {
+    let result = ExecutionEngine::execute_source("let x = 1; let b = 6; x = 10 + b; x").unwrap();
+
+    assert_eq!(result.borrow().cast_to_number(), 16.0);
+}
+
+#[test]
 fn test_basic_single_string() {
     let result = ExecutionEngine::execute_source("\"Hello World\"").unwrap();
 

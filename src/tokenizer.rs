@@ -36,9 +36,20 @@ impl Token {
         }
     }
 
-    pub fn is_arithmetic_operator(&self) -> bool {
+    pub fn is_equals(&self) -> bool {
         match self.kind {
-            TokenKind::Divide | TokenKind::Minus | TokenKind::Plus | TokenKind::Multiply => true,
+            TokenKind::Equals => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_binary_operator(&self) -> bool {
+        match self.kind {
+            TokenKind::Divide
+            | TokenKind::Minus
+            | TokenKind::Plus
+            | TokenKind::Multiply
+            | TokenKind::Equals => true,
             _ => false,
         }
     }
