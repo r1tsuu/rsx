@@ -42,8 +42,6 @@ impl ExecutionEngine {
             };
         }
 
-        println!("{:#?}", Parser::new(tokens.clone()).parse_program());
-
         match Parser::new(tokens).parse_program() {
             Ok(program) => Self::new().execute_expression(program),
             Err(err) => return Err(err),

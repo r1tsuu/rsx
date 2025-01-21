@@ -9,6 +9,20 @@ fn test_basic_binary() {
 }
 
 #[test]
+fn test_binary_eq_eq_1() {
+    let result = ExecutionEngine::execute_source("100 == 100").unwrap();
+
+    assert_eq!(result.borrow().cast_to_bool(), true);
+}
+
+#[test]
+fn test_binary_eq_eq_2() {
+    let result = ExecutionEngine::execute_source("100 == \"100\"").unwrap();
+
+    assert_eq!(result.borrow().cast_to_bool(), true);
+}
+
+#[test]
 fn test_basic_variables() {
     let result = ExecutionEngine::execute_source("let x = 1; let b = 6; x + b;").unwrap();
 

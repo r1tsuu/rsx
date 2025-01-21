@@ -22,7 +22,7 @@ fn main() -> ExitCode {
         .unwrap()
         .as_micros();
 
-    let source = String::from("1 == 2"); // 3
+    let source = String::from("1 == 1"); // 3
 
     match ExecutionEngine::execute_source(source) {
         Ok(value) => {
