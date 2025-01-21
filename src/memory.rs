@@ -33,4 +33,8 @@ impl Memory {
     pub fn allocate_string(&mut self, value: String) -> JavascriptObjectRef {
         self.allocate(JavascriptObject::new_string(self.next_id, value))
     }
+
+    pub fn get_by_id(&self, id: u64) -> Option<JavascriptObjectRef> {
+        self.heap.get(&id).cloned()
+    }
 }
