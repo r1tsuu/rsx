@@ -1,7 +1,7 @@
 use crate::{
     error::EngineError,
     execution_scope::ExecutionScope,
-    javascript_object::{JavascriptObject, JavascriptObjectRef},
+    javascript_object::{JavascriptObjectKind, JavascriptObjectRef},
     memory::Memory,
     parser::{Expression, Parser},
     tokenizer::{TokenKind, Tokenizer},
@@ -169,8 +169,8 @@ impl ExecutionEngine {
         expression: Expression,
     ) -> Result<f32, EngineError> {
         match self.execute_expression(expression) {
-            Ok(value) => match *value.clone().borrow() {
-                JavascriptObject::Number { value } => Ok(value),
+            Ok(value) => match value.clone().borrow().kind {
+                JavascriptObjectKind::Number { value } => Ok(value),
                 _ => {
                     return Err(EngineError::execution_engine_error(format!(
                         "Binary expression accepts only numbers! {:#?} is not",

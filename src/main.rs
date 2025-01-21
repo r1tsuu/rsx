@@ -1,4 +1,7 @@
-use std::process::ExitCode;
+use std::{
+    process::ExitCode,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use execution_engine::ExecutionEngine;
 mod error;
@@ -11,11 +14,24 @@ mod tests;
 mod tokenizer;
 
 fn main() -> ExitCode {
-    let source = String::from("let b = 0; b = 10;"); // 3
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_micros();
+
+    let source = String::from("let x = 1; x =3"); // 3
 
     match ExecutionEngine::execute_source(source) {
         Ok(value) => {
-            println!("Executed with value: {:#?}", value);
+            println!(
+                "Executed with value: {:#?}, time: {}",
+                value,
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_micros()
+                    - now
+            );
             ExitCode::SUCCESS
         }
         Err(err) => {
