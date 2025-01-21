@@ -301,4 +301,49 @@ impl Parser {
             Err(err) => Err(err),
         }
     }
+
+    pub fn reorder_expression(expr: Expression) -> Expression {
+        match expr {
+            Expression::BinaryOp { left, op, right } => {
+                let left = Self::reorder_expression(*left);
+                let right = Self::reorder_expression(*right);
+
+                if let Expression::BinaryOp {
+                    left: right_left,
+                    op: right_op,
+                    right: right_right,
+                } = right.clone()
+                {
+                    if Self::get_precedence(&op) > Self::get_precedence(&right_op) {
+                        let new_left = Expression::BinaryOp {
+                            left: Box::from(left),
+                            op,
+                            right: right_left,
+                        };
+
+                        return Expression::BinaryOp {
+                            left: Box::from(new_left),
+                            op: right_op,
+                            right: right_right,
+                        };
+                    }
+                }
+
+                return Expression::BinaryOp {
+                    left: Box::from(left),
+                    op,
+                    right: Box::from(right),
+                };
+            }
+            _ => expr,
+        }
+    }
+
+    fn get_precedence(token: &Token) -> i32 {
+        match token.kind {
+            TokenKind::Plus | TokenKind::Minus => 1,
+            TokenKind::Multiply | TokenKind::Divide => 2,
+            _ => 0,
+        }
+    }
 }

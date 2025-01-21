@@ -17,6 +17,7 @@ pub enum TokenKind {
     Return,
     Identifier,
     Equals,
+    String,
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +156,23 @@ impl Tokenizer {
                     }
 
                     return Token::build(self, TokenKind::Number, digit, start);
+                }
+
+                if char == '"' {
+                    let mut string = String::new();
+                    while let Some(next_char) =
+                        self.chars.get(self.cursor.position).map(char::clone)
+                    {
+                        self.increment_column();
+
+                        if next_char == '"' {
+                            break;
+                        } else {
+                            string.push(next_char);
+                        }
+                    }
+
+                    return Token::build(self, TokenKind::String, string, start);
                 }
 
                 let char_str = char.to_string();

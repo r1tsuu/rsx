@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "javascript-runtime"
+name = "javascript-engine"
 version = "0.1.0"
