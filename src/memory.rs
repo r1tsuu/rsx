@@ -2,10 +2,13 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, vec};
 
 use crate::javascript_object::{JavascriptObject, JavascriptObjectRef};
 
+#[derive(Debug)]
 pub struct Memory {
     heap: HashMap<u64, JavascriptObjectRef>,
     next_id: u64,
 }
+
+pub type MemoryRef = Rc<RefCell<Memory>>;
 
 impl Memory {
     pub fn new() -> Self {

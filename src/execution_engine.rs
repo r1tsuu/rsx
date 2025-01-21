@@ -1,15 +1,17 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     error::EngineError,
     execution_scope::ExecutionScope,
     javascript_object::{JavascriptObjectKind, JavascriptObjectRef},
-    memory::Memory,
+    memory::{Memory, MemoryRef},
     parser::{Expression, Parser},
     tokenizer::{TokenKind, Tokenizer},
 };
 
 pub struct ExecutionEngine {
     scopes: Vec<ExecutionScope>,
-    memory: Memory,
+    memory: MemoryRef,
     execution_tick: u64,
 }
 
@@ -19,7 +21,7 @@ impl ExecutionEngine {
     fn new() -> Self {
         let mut engine = ExecutionEngine {
             scopes: vec![],
-            memory: Memory::new(),
+            memory: Rc::new(RefCell::new(Memory::new())),
             execution_tick: 0,
         };
 
@@ -45,10 +47,13 @@ impl ExecutionEngine {
     }
 
     fn initialize_global_scope(&mut self) {
-        let mut global_scope = ExecutionScope::new(None);
+        let mut global_scope = ExecutionScope::new(None, self.memory.clone());
 
         global_scope
-            .define(UNDEFINED_NAME.to_string(), self.memory.allocate_undefined())
+            .define(
+                UNDEFINED_NAME.to_string(),
+                self.memory.borrow_mut().allocate_undefined(),
+            )
             .unwrap();
 
         self.scopes.push(global_scope);
@@ -93,7 +98,9 @@ impl ExecutionEngine {
                     Err(err) => Err(err),
                 }
             }
-            Expression::NumberLiteral { value } => Ok(self.memory.allocate_number(value)),
+            Expression::NumberLiteral { value } => {
+                Ok(self.memory.borrow_mut().allocate_number(value))
+            }
             Expression::Parenthesized { expression } => {
                 self.execute_expression(*expression.clone())
             }
@@ -150,33 +157,53 @@ impl ExecutionEngine {
                     };
 
                 match op.kind {
-                    TokenKind::Plus => Ok(self.memory.allocate_number(left_value + right_value)),
-                    TokenKind::Minus => Ok(self.memory.allocate_number(left_value - right_value)),
-                    TokenKind::Multiply => {
-                        Ok(self.memory.allocate_number(left_value * right_value))
-                    }
-                    TokenKind::Divide => Ok(self.memory.allocate_number(left_value / right_value)),
+                    TokenKind::Plus => Ok(self
+                        .memory
+                        .borrow_mut()
+                        .allocate_number(left_value + right_value)),
+                    TokenKind::Minus => Ok(self
+                        .memory
+                        .borrow_mut()
+                        .allocate_number(left_value - right_value)),
+                    TokenKind::Multiply => Ok(self
+                        .memory
+                        .borrow_mut()
+                        .allocate_number(left_value * right_value)),
+                    TokenKind::Divide => Ok(self
+                        .memory
+                        .borrow_mut()
+                        .allocate_number(left_value / right_value)),
                     _ => Err(EngineError::execution_engine_error(format!(
                         "Failed to execute binary expression with operator: {:#?}",
                         op
                     ))),
                 }
             }
-            Expression::StringLiteral { value } => Ok(self.memory.allocate_string(value)),
+            Expression::StringLiteral { value } => {
+                Ok(self.memory.borrow_mut().allocate_string(value))
+            }
         };
 
         self.execution_tick += 1;
 
-        if self.execution_tick % 10 == 0 {
-            self.collect_garbage();
-        }
+        println!(
+            "BEF: {:#?}",
+            self.get_current_scope().get_variable_ids().len()
+        );
+        self.collect_garbage();
+        println!(
+            "AFTER: {:#?}",
+            self.get_current_scope().get_variable_ids().len()
+        );
 
         result
     }
 
     fn collect_garbage(&mut self) {
         for scope in self.scopes.iter() {
-            self.memory.deallocate_except_ids(&scope.get_variable_ids());
+            self.memory
+                .borrow_mut()
+                .deallocate_except_ids(&scope.get_variable_ids());
         }
     }
 

@@ -1,5 +1,8 @@
 use std::{
+    cell::RefCell,
+    collections::HashMap,
     process::ExitCode,
+    rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -19,7 +22,7 @@ fn main() -> ExitCode {
         .unwrap()
         .as_micros();
 
-    let source = String::from("let x = 1; x =3"); // 3
+    let source = String::from("let x=1;let f=1;let g=3; let j=4;"); // 3
 
     match ExecutionEngine::execute_source(source) {
         Ok(value) => {
