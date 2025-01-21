@@ -8,6 +8,9 @@ pub enum Expression {
     NumberLiteral {
         value: f32,
     },
+    StringLiteral {
+        value: String,
+    },
     BinaryOp {
         left: Box<Expression>,
         op: Token,
@@ -81,6 +84,7 @@ impl Parser {
             TokenKind::OpenParen => self.parse_oparen(),
             TokenKind::Let => self.parse_let(),
             TokenKind::Identifier => self.parse_identifier(),
+            TokenKind::String => self.parse_string(),
             _ => Err(EngineError::parser_error(format!(
                 "Unexpected token {:#?}",
                 token
@@ -157,6 +161,15 @@ impl Parser {
                 value: token.text.parse::<f32>().unwrap(),
             }),
         }
+    }
+
+    fn parse_string(&mut self) -> Result<Expression, EngineError> {
+        let token = match self.tokens.get(self.current_token) {
+            Some(val) => val.clone(),
+            None => return Err(EngineError::parser_error("Unexpected string")),
+        };
+
+        Ok(Expression::StringLiteral { value: token.text })
     }
 
     fn parse_identifier(&mut self) -> Result<Expression, EngineError> {

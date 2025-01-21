@@ -7,10 +7,11 @@ mod execution_scope;
 mod javascript_object;
 mod memory;
 mod parser;
+mod tests;
 mod tokenizer;
 
 fn main() -> ExitCode {
-    let source = String::from("let x = 1; let b = 2; x + b"); // 3
+    let source = String::from("let x = 1; let b = 3; x + b;"); // 3
 
     match ExecutionEngine::execute_source(source) {
         Ok(value) => {

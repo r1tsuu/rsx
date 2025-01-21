@@ -26,10 +26,10 @@ impl ExecutionEngine {
         engine
     }
 
-    pub fn execute_source(source: String) -> Result<JavascriptObjectRef, EngineError> {
+    pub fn execute_source<T: ToString>(source: T) -> Result<JavascriptObjectRef, EngineError> {
         let mut tokens = vec![];
 
-        for token in Tokenizer::from_source(source).to_iter() {
+        for token in Tokenizer::from_source(source.to_string()).to_iter() {
             match token {
                 Ok(token) => tokens.push(token),
                 Err(err) => return Err(err),
@@ -128,10 +128,7 @@ impl ExecutionEngine {
                     ))),
                 }
             }
-            _ => Err(EngineError::execution_engine_error(format!(
-                "Unimplemented logic for {:#?} expression",
-                expression
-            ))),
+            Expression::StringLiteral { value } => Ok(self.memory.allocate_string(value)),
         }
     }
 
