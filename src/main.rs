@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use execution_engine::ExpressionExecutor;
+use execution_engine::ExpressionEvaluator;
 use parser::Parser;
 use tokenizer::Tokenizer;
 mod error;
@@ -54,11 +54,13 @@ fn main() -> ExitCode {
         .as_micros();
 
     let source = String::from(
-        "function a(x) {
-    return x+1;}; a(5);",
+        "
+let c = 1;
+        function a(x) {
+    return c+1;}; a(3);",
     ); // 3
 
-    match ExpressionExecutor::execute_source(source) {
+    match ExpressionEvaluator::evaluate_source(source) {
         Ok(value) => {
             println!(
                 "Executed with value: {value:?}, time: {}",
