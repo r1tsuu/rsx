@@ -225,7 +225,6 @@ impl Parser {
                     extra_paren -= 1;
                 } else {
                     found_close = true;
-                    self.current_token -= 1;
                     break;
                 }
             }
@@ -237,7 +236,9 @@ impl Parser {
             return Err(EngineError::parser_error("Expected closed OParen"));
         }
 
-        let spliced = &self.tokens[start..self.current_token + 1];
+        let end = self.current_token;
+
+        let spliced = &self.tokens[start..end + 1];
 
         let mut parser = Self::new(spliced.to_vec());
 
@@ -246,7 +247,7 @@ impl Parser {
             Err(err) => return Err(err),
         };
 
-        self.current_token += parser.current_token;
+        self.current_token = end + 1;
 
         let expr = Expression::Parenthesized {
             expression: Box::from(expression),
@@ -258,22 +259,21 @@ impl Parser {
                     return Ok(expr);
                 }
 
-                if !next_token.is_binary_operator() {
-                    return Err(EngineError::parser_error(
-                        "Expected arithmetic operator as next token after Paren",
-                    ));
-                }
+                if next_token.is_binary_operator() {
+                    let op = next_token.clone();
+                    self.current_token += 1;
 
-                let op = next_token.clone();
-                self.current_token += 1;
-
-                match self.parse_expression() {
-                    Ok(right) => Ok(Expression::BinaryOp {
-                        left: Box::from(expr),
-                        op,
-                        right: Box::from(right),
-                    }),
-                    Err(err) => Err(err),
+                    match self.parse_expression() {
+                        Ok(right) => Ok(Expression::BinaryOp {
+                            left: Box::from(expr),
+                            op,
+                            right: Box::from(right),
+                        }),
+                        Err(err) => Err(err),
+                    }
+                } else {
+                    self.current_token -= 1;
+                    Ok(expr)
                 }
             }
             None => Ok(expr),
