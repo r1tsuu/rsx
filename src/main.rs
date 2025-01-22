@@ -55,7 +55,7 @@ fn main() -> ExitCode {
 
     let source = String::from(
         "function a(x) {
-    return x;}; a(5);",
+    return x+1;}; a(5);",
     ); // 3
 
     match ExpressionExecutor::execute_source(source) {

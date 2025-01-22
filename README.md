@@ -15,5 +15,20 @@ x + b // ExecutionEngine::execute_source evaluates to JavascriptObject { Number 
 let x = "Hello World"
 x // ExecutionEngine::execute_source evaluates to JavascriptObject { String { value: "Hello World" }}
 ```
+4. Block scoping
+```js
+// its own scope
+{
+  let x = 1;
+}
+```
+5. Functions
+```js
+function x(a) {
+  return a + 1;
+}
 
-More (functions, objects) soon!
+x(1); // Evaluates to 6
+```
+
+More  (objects) soon!
