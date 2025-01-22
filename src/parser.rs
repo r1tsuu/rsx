@@ -55,6 +55,8 @@ impl Expression {
         match self {
             Self::Identifier { name } => name.clone(),
             Self::LetVariableDeclaration { name, .. } => name.clone(),
+            Self::FunctionParameter { name, .. } => name.clone(),
+            Self::FunctionDeclaration { name, .. } => name.clone(),
             _ => panic!(),
         }
     }

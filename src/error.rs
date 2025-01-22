@@ -24,6 +24,15 @@ pub struct EngineError {
     kind: EngineErrorKind,
 }
 
+impl Clone for EngineError {
+    fn clone(&self) -> Self {
+        EngineError {
+            kind: self.kind.clone(),
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
+
 impl EngineError {
     pub fn message(&self) -> String {
         match self.kind.clone() {

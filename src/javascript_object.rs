@@ -1,13 +1,11 @@
 use core::fmt;
-use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
-use crate::{error::EngineError, execution_engine::ExecutionEngine};
+use crate::execution_engine::ExecutionContextRef;
 
-pub struct JavascriptFunctionContext<'a> {
-    pub execution_engine: &'a mut ExecutionEngine,
+pub struct JavascriptFunctionContext {
+    pub execution_context: ExecutionContextRef,
     pub arguments: Vec<JavascriptObjectRef>,
-    pub set_return_value: fn(JavascriptObjectRef),
-    pub set_error: fn(&EngineError),
 }
 
 pub type JavascriptFunctionObjectValue = Rc<RefCell<dyn Fn(JavascriptFunctionContext)>>;
@@ -75,6 +73,10 @@ impl JavascriptObject {
 
     pub fn is_boolean(&self) -> bool {
         matches!(self.kind, JavascriptObjectKind::Boolean { .. })
+    }
+
+    pub fn is_function(&self) -> bool {
+        matches!(self.kind, JavascriptObjectKind::Function { .. })
     }
 
     pub fn is_undefined(&self) -> bool {
