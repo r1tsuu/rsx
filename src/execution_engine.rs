@@ -197,6 +197,7 @@ impl ExecutionEngine {
             Expression::StringLiteral { value } => {
                 Ok(self.memory.borrow_mut().allocate_string(value))
             }
+            _ => unimplemented!(),
         };
 
         self.execution_tick += 1;

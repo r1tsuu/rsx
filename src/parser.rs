@@ -29,6 +29,9 @@ pub enum Expression {
     Identifier {
         name: String,
     },
+    Block {
+        expressions: Vec<Expression>,
+    },
 }
 
 impl Expression {
@@ -57,12 +60,22 @@ impl Parser {
     }
 
     pub fn parse_program(&mut self) -> Result<Expression, EngineError> {
+        let expressions = self.parse_expressions()?;
+
+        Ok(Expression::Program { expressions })
+    }
+
+    fn parse_expressions(&mut self) -> Result<Vec<Expression>, EngineError> {
         let mut expressions = vec![];
 
         while self.current_token < self.tokens.len() {
             let token = match self.tokens.get(self.current_token) {
                 Some(val) => val,
-                None => return Err(EngineError::parser_error("parse_program Unexpected token")),
+                None => {
+                    return Err(EngineError::parser_error(
+                        "parse_expressions Unexpected token",
+                    ))
+                }
             };
 
             if !token.is_semicolon() {
@@ -77,7 +90,7 @@ impl Parser {
             self.current_token += 1;
         }
 
-        Ok(Expression::Program { expressions })
+        Ok(expressions)
     }
 
     fn parse_expression(&mut self) -> Result<Expression, EngineError> {
@@ -96,6 +109,7 @@ impl Parser {
             TokenKind::Let => self.parse_let(),
             TokenKind::Identifier => self.parse_identifier(),
             TokenKind::String => self.parse_string(),
+            TokenKind::OpenBrace => self.parse_obrace(),
             _ => Err(EngineError::parser_error(format!(
                 "Unexpected token {:#?}",
                 token
@@ -199,6 +213,65 @@ impl Parser {
             }
             None => Ok(Expression::Identifier { name: token.text }),
         }
+    }
+
+    fn parse_obrace(&mut self) -> Result<Expression, EngineError> {
+        let mut extra_paren: usize = 0;
+        let mut found_close = false;
+        self.current_token += 1;
+        let start = self.current_token;
+
+        while self.current_token < self.tokens.len() {
+            let token = match self.tokens.get(self.current_token) {
+                Some(val) => val,
+                None => {
+                    return Err(EngineError::parser_error(format!(
+                        "parse_obrace token not found on pos {}",
+                        self.current_token
+                    )));
+                }
+            };
+
+            if token.kind == TokenKind::OpenBrace {
+                extra_paren += 1;
+            } else if token.kind == TokenKind::CloseBrace {
+                if extra_paren > 0 {
+                    extra_paren -= 1;
+                } else {
+                    found_close = true;
+                    break;
+                }
+            }
+
+            self.current_token += 1;
+        }
+
+        if !found_close {
+            return Err(EngineError::parser_error("Expected closed OBrace"));
+        }
+
+        let end = self.current_token;
+
+        let spliced = &self.tokens[start..end];
+
+        let mut parser = Self::new(spliced.to_vec());
+
+        let expressions = parser.parse_expressions()?;
+
+        self.current_token = end + 1;
+
+        match self.tokens.get(end + 1) {
+            Some(v) => {
+                if v.kind != TokenKind::Semicolon {
+                    self.current_token -= 1;
+                }
+            }
+            _ => {}
+        }
+
+        let expr = Expression::Block { expressions };
+
+        Ok(expr)
     }
 
     fn parse_oparen(&mut self) -> Result<Expression, EngineError> {

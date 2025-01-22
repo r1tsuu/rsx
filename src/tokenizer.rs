@@ -222,7 +222,7 @@ impl Tokenizer {
                     while let Some(next_char) =
                         self.chars.get(self.cursor.position).map(char::clone)
                     {
-                        if next_char.is_whitespace() {
+                        if next_char != '=' {
                             break;
                         } else {
                             self.increment_column();
