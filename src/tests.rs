@@ -42,3 +42,11 @@ fn test_basic_single_string() {
 
     assert_eq!(result.borrow().cast_to_string(), "Hello World");
 }
+
+#[test]
+fn test_basic_functions() {
+    let result =
+        ExpressionExecutor::execute_source("function x(a, b) { return a + b; } x(2, 3);").unwrap();
+
+    assert_eq!(result.borrow().cast_to_number(), 5.0);
+}
