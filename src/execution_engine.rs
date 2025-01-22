@@ -162,22 +162,28 @@ impl ExecutionEngine {
                 self.exit_scope();
                 return Ok(self.get_undefined());
             }
-            Expression::FunctionDeclaration { name, body, .. } => {
+            Expression::FunctionDeclaration {
+                name,
+                parameters: arguments,
+                body,
+                ..
+            } => {
                 {
                     let body = body.clone();
+                    let arguments = arguments.clone();
 
                     let func = move |func_ctx: JavascriptFunctionContext| {
                         let scope = func_ctx.execution_engine.enter_scope();
 
-                        for (arg_name, arg) in func_ctx.arguments {
-                            match scope.borrow_mut().define(arg_name, arg) {
-                                Err(err) => {
-                                    (func_ctx.set_error)(&err);
-                                    func_ctx.execution_engine.exit_scope();
-                                    return;
-                                }
-                                _ => {}
-                            }
+                        for arg in func_ctx.arguments {
+                            // match scope.borrow_mut().define(arg_name, arg) {
+                            //     Err(err) => {
+                            //         (func_ctx.set_error)(&err);
+                            //         func_ctx.execution_engine.exit_scope();
+                            //         return;
+                            //     }
+                            //     _ => {}
+                            // }
                         }
 
                         let expr = func_ctx
@@ -204,6 +210,9 @@ impl ExecutionEngine {
                 }
                 todo!()
             }
+            // Expression::FunctionCall { name, arguments } => {
+            //     let arguments_values = vec![];
+            // }
             Expression::NumberLiteral { value } => {
                 Ok(self.memory.borrow_mut().allocate_number(value))
             }

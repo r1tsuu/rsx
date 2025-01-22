@@ -5,7 +5,7 @@ use crate::{error::EngineError, execution_engine::ExecutionEngine};
 
 pub struct JavascriptFunctionContext<'a> {
     pub execution_engine: &'a mut ExecutionEngine,
-    pub arguments: HashMap<String, JavascriptObjectRef>,
+    pub arguments: Vec<JavascriptObjectRef>,
     pub set_return_value: fn(JavascriptObjectRef),
     pub set_error: fn(&EngineError),
 }
