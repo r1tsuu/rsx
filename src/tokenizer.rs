@@ -20,6 +20,7 @@ pub enum TokenKind {
     String,
     EqualsEquals,
     EqualsEqualsEquals,
+    Comma,
 }
 
 #[derive(Debug, Clone)]
@@ -254,6 +255,7 @@ impl Tokenizer {
                     '{' => Token::build(self, TokenKind::OpenBrace, char_str, start),
                     '}' => Token::build(self, TokenKind::CloseBrace, char_str, start),
                     ';' => Token::build(self, TokenKind::Semicolon, char_str, start),
+                    ',' => Token::build(self, TokenKind::Comma, char_str, start),
                     _ => Some(Err(EngineError::tokenizer_unknown_token(
                         char_str,
                         self.cursor.column,

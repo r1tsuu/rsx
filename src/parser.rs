@@ -32,6 +32,14 @@ pub enum Expression {
     Block {
         expressions: Vec<Expression>,
     },
+    FunctionDeclaration {
+        name: String,
+        arguments: Vec<Expression>,
+        body: Box<Expression>,
+    },
+    FunctionReturn {
+        expression: Box<Expression>,
+    },
 }
 
 impl Expression {
@@ -105,16 +113,90 @@ impl Parser {
 
         match token.kind {
             TokenKind::Number => self.parse_number(),
-            TokenKind::OpenParen => self.parse_oparen(),
+            TokenKind::OpenParen => self.parse_oparen_as_expression(),
             TokenKind::Let => self.parse_let(),
             TokenKind::Identifier => self.parse_identifier(),
             TokenKind::String => self.parse_string(),
             TokenKind::OpenBrace => self.parse_obrace(),
+            TokenKind::Function => self.parse_function(),
+            TokenKind::Return => self.parse_function_return(),
             _ => Err(EngineError::parser_error(format!(
                 "Unexpected token {:#?}",
                 token
             ))),
         }
+    }
+
+    fn parse_function(&mut self) -> Result<Expression, EngineError> {
+        self.current_token += 1;
+
+        let expect_function_name_identifier_token = self
+            .tokens
+            .get(self.current_token)
+            .ok_or(EngineError::parser_error(
+                "Expected identifier token after function",
+            ))
+            .cloned()?;
+
+        if !matches!(
+            expect_function_name_identifier_token.kind,
+            TokenKind::Identifier
+        ) {
+            return Err(EngineError::parser_error(format!(
+                "Expected identifier token after function, got: {:#?}",
+                expect_function_name_identifier_token
+            )));
+        }
+
+        self.current_token += 1;
+
+        let expect_oparen =
+            self.tokens
+                .get(self.current_token)
+                .ok_or(EngineError::parser_error(
+                    "Expected oparen start token after function name",
+                ))?;
+
+        if !matches!(expect_oparen.kind, TokenKind::OpenParen) {
+            return Err(EngineError::parser_error(format!(
+                "Expected oparen start token after function name, got: {:#?}",
+                expect_oparen
+            )));
+        }
+
+        let args = self.parse_oparen_as_function_arguments()?;
+
+        println!("{args:#?}");
+
+        let expect_obrace =
+            self.tokens
+                .get(self.current_token)
+                .ok_or(EngineError::parser_error(
+                    "Expected block start token after function args",
+                ))?;
+
+        if !matches!(expect_obrace.kind, TokenKind::OpenBrace) {
+            return Err(EngineError::parser_error(format!(
+                "Expected block start token after function args, got: {:#?}",
+                expect_obrace
+            )));
+        }
+
+        let body = self.parse_obrace()?;
+
+        Ok(Expression::FunctionDeclaration {
+            name: expect_function_name_identifier_token.text,
+            arguments: args,
+            body: Box::new(body),
+        })
+    }
+
+    fn parse_function_return(&mut self) -> Result<Expression, EngineError> {
+        self.current_token += 1;
+        let expression = self.parse_expression()?;
+        Ok(Expression::FunctionReturn {
+            expression: Box::new(expression),
+        })
     }
 
     fn parse_let(&mut self) -> Result<Expression, EngineError> {
@@ -274,7 +356,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_oparen(&mut self) -> Result<Expression, EngineError> {
+    fn parse_oparen_as_expression(&mut self) -> Result<Expression, EngineError> {
         let mut extra_paren: usize = 0;
         let mut found_close = false;
         self.current_token += 1;
@@ -285,7 +367,7 @@ impl Parser {
                 Some(val) => val,
                 None => {
                     return Err(EngineError::parser_error(format!(
-                        "parse_oparen token not found on pos {}",
+                        "parse_oparen_as_expression token not found on pos {}",
                         self.current_token
                     )));
                 }
@@ -351,6 +433,77 @@ impl Parser {
             }
             None => Ok(expr),
         }
+    }
+
+    fn parse_oparen_as_function_arguments(&mut self) -> Result<Vec<Expression>, EngineError> {
+        let mut extra_paren: usize = 0;
+        let mut found_close = false;
+        self.current_token += 1;
+        let start = self.current_token;
+
+        while self.current_token < self.tokens.len() {
+            let token = match self.tokens.get(self.current_token) {
+                Some(val) => val,
+                None => {
+                    return Err(EngineError::parser_error(format!(
+                        "parse_oparen_as_function_arguments token not found on pos {}",
+                        self.current_token
+                    )));
+                }
+            };
+
+            if token.kind == TokenKind::OpenParen {
+                extra_paren += 1;
+            } else if token.kind == TokenKind::CloseParen {
+                if extra_paren > 0 {
+                    extra_paren -= 1;
+                } else {
+                    found_close = true;
+                    break;
+                }
+            }
+
+            self.current_token += 1;
+        }
+
+        if !found_close {
+            return Err(EngineError::parser_error("Expected closed OParen"));
+        }
+
+        let end = self.current_token;
+
+        let spliced = &self.tokens[start..end];
+
+        let mut chunks: Vec<Vec<Token>> = vec![];
+        let mut current_chunk = 0;
+
+        for token in spliced {
+            if matches!(token.kind, TokenKind::Comma) {
+                current_chunk += 1;
+                continue;
+            } else {
+                if current_chunk + 1 > chunks.len() {
+                    chunks.push(vec![]);
+                }
+                chunks.get_mut(current_chunk).unwrap().push(token.clone());
+            }
+        }
+
+        let mut expressions = vec![];
+
+        if chunks.len() > 0 {
+            for chunk in chunks {
+                let mut parser = Self::new(chunk);
+
+                let expression = parser.parse_expression()?;
+
+                expressions.push(expression)
+            }
+        }
+
+        self.current_token = end + 1;
+
+        Ok(expressions)
     }
 
     fn parse_binary_op_expression(&mut self) -> Result<Expression, EngineError> {

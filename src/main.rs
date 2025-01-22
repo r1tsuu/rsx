@@ -22,9 +22,12 @@ mod tokenizer;
 fn main() -> ExitCode {
     let source = String::from(
         "
-{
-        2
-        }
+function x(a,b,c) {
+let x = 1;
+let b = 1;
+function nested(a) {
+return 1;}
+}
     ",
     ); // 3
     let mut tokens = vec![];
