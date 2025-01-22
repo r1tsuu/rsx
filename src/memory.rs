@@ -1,8 +1,9 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc, vec};
 
-use crate::javascript_object::{JavascriptObject, JavascriptObjectRef};
+use crate::javascript_object::{
+    JavascriptFunctionObjectValue, JavascriptObject, JavascriptObjectRef,
+};
 
-#[derive(Debug)]
 pub struct Memory {
     heap: HashMap<u64, JavascriptObjectRef>,
     next_id: u64,
@@ -31,6 +32,13 @@ impl Memory {
 
     pub fn allocate_number(&mut self, value: f32) -> JavascriptObjectRef {
         self.allocate(JavascriptObject::new_number(self.next_id, value))
+    }
+
+    pub fn allocate_function(
+        &mut self,
+        value: JavascriptFunctionObjectValue,
+    ) -> JavascriptObjectRef {
+        self.allocate(JavascriptObject::new_function(self.next_id, value))
     }
 
     pub fn allocate_string(&mut self, value: String) -> JavascriptObjectRef {

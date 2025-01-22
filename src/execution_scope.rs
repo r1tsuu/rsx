@@ -2,15 +2,16 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{error::EngineError, javascript_object::JavascriptObjectRef, memory::MemoryRef};
 
-#[derive(Debug)]
 pub struct ExecutionScope {
     variables: HashMap<String, u64>,
     parent: Option<Rc<RefCell<ExecutionScope>>>,
     memory: MemoryRef,
 }
 
+pub type ExecutionScopeRef = Rc<RefCell<ExecutionScope>>;
+
 impl ExecutionScope {
-    pub fn new(parent: Option<Rc<RefCell<ExecutionScope>>>, memory: MemoryRef) -> Self {
+    pub fn new(parent: Option<ExecutionScopeRef>, memory: MemoryRef) -> Self {
         Self {
             variables: HashMap::new(),
             parent,

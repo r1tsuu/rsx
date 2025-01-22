@@ -1,17 +1,43 @@
-use std::{cell::RefCell, rc::Rc};
+use core::fmt;
+use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
-#[derive(Debug, Clone)]
-pub enum JavascriptObjectKind {
-    Number { value: f32 },
-    String { value: String },
-    Undefined,
-    Boolean { value: bool },
+use crate::{error::EngineError, execution_engine::ExecutionEngine};
+
+pub struct JavascriptFunctionContext<'a> {
+    pub execution_engine: &'a mut ExecutionEngine,
+    pub arguments: HashMap<String, JavascriptObjectRef>,
+    pub set_return_value: fn(JavascriptObjectRef),
+    pub set_error: fn(&EngineError),
 }
 
-#[derive(Debug)]
+pub type JavascriptFunctionObjectValue = Rc<RefCell<dyn Fn(JavascriptFunctionContext)>>;
+
+#[derive(Clone)]
+pub enum JavascriptObjectKind {
+    Number {
+        value: f32,
+    },
+    String {
+        value: String,
+    },
+    Undefined,
+    Boolean {
+        value: bool,
+    },
+    Function {
+        value: JavascriptFunctionObjectValue,
+    },
+}
+
 pub struct JavascriptObject {
     pub memory_id: u64,
     pub kind: JavascriptObjectKind,
+}
+
+impl fmt::Debug for JavascriptObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.create_debug_string())
+    }
 }
 
 impl JavascriptObject {
@@ -35,6 +61,10 @@ impl JavascriptObject {
         Self::new(memory_id, JavascriptObjectKind::Undefined)
     }
 
+    pub fn new_function(memory_id: u64, value: JavascriptFunctionObjectValue) -> Self {
+        Self::new(memory_id, JavascriptObjectKind::Function { value })
+    }
+
     pub fn is_number(&self) -> bool {
         matches!(self.kind, JavascriptObjectKind::Number { .. })
     }
@@ -51,6 +81,25 @@ impl JavascriptObject {
         matches!(self.kind, JavascriptObjectKind::Undefined)
     }
 
+    pub fn create_debug_string(&self) -> String {
+        let type_val = match self.kind.clone() {
+            JavascriptObjectKind::Boolean { .. } => "Boolean",
+            JavascriptObjectKind::Function { .. } => "Function",
+            JavascriptObjectKind::Number { .. } => "Number",
+            JavascriptObjectKind::String { .. } => "String",
+            JavascriptObjectKind::Undefined => "Undefined",
+        };
+
+        let str = format!(
+            "JavascriptObject::{}, Address: 0x{:X}, Value: {}",
+            type_val,
+            self.memory_id,
+            self.cast_to_string()
+        );
+
+        return str;
+    }
+
     pub fn cast_to_number(&self) -> f32 {
         match self.kind.clone() {
             JavascriptObjectKind::Number { value } => value,
@@ -63,6 +112,7 @@ impl JavascriptObject {
                 }
             }
             JavascriptObjectKind::Undefined => 0.0,
+            JavascriptObjectKind::Function { .. } => 0.0,
         }
     }
 
@@ -78,7 +128,7 @@ impl JavascriptObject {
                 }
             }
             JavascriptObjectKind::String { value } => value,
-            _ => String::from(""),
+            JavascriptObjectKind::Function { .. } => String::from("Function"),
         }
     }
 
@@ -88,6 +138,7 @@ impl JavascriptObject {
             JavascriptObjectKind::Undefined => false,
             JavascriptObjectKind::Number { value } => value != 0.0,
             JavascriptObjectKind::Boolean { value } => value,
+            JavascriptObjectKind::Function { .. } => true,
         }
     }
 
@@ -99,6 +150,7 @@ impl JavascriptObject {
             JavascriptObjectKind::Boolean { value } => value == b.cast_to_bool(),
             JavascriptObjectKind::Number { value } => value == b.cast_to_number(),
             JavascriptObjectKind::Undefined => b.is_undefined(),
+            JavascriptObjectKind::Function { .. } => b.memory_id == self.memory_id,
         }
     }
 }

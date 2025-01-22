@@ -46,6 +46,13 @@ impl Token {
         }
     }
 
+    pub fn is_oparen(&self) -> bool {
+        match self.kind {
+            TokenKind::OpenParen => true,
+            _ => false,
+        }
+    }
+
     pub fn is_binary_operator(&self) -> bool {
         match self.kind {
             TokenKind::Divide

@@ -40,6 +40,10 @@ pub enum Expression {
     FunctionReturn {
         expression: Box<Expression>,
     },
+    FunctionCall {
+        name: String,
+        arguments: Vec<Expression>,
+    },
 }
 
 impl Expression {
@@ -287,11 +291,18 @@ impl Parser {
 
         match self.tokens.get(self.current_token + 1) {
             Some(next_token) => {
-                if !next_token.is_binary_operator() {
-                    return Ok(Expression::Identifier { name: token.text });
+                if next_token.is_binary_operator() {
+                    self.parse_binary_op_expression()
+                } else if next_token.is_oparen() {
+                    self.current_token += 1;
+                    let arguments = self.parse_oparen_as_function_arguments()?;
+                    Ok(Expression::FunctionCall {
+                        name: token.text,
+                        arguments,
+                    })
+                } else {
+                    Ok(Expression::Identifier { name: token.text })
                 }
-
-                self.parse_binary_op_expression()
             }
             None => Ok(Expression::Identifier { name: token.text }),
         }
