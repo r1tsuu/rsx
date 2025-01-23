@@ -51,6 +51,19 @@ pub enum Expression {
         name: Box<Expression>,
         expression: Box<Expression>,
     },
+    ObjectLiteralExpression {
+        properties: Vec<Expression>,
+    },
+    PropertyAssignment {
+        name: Box<Expression>,
+        initializer: Box<Expression>,
+    },
+}
+
+#[derive(Clone)]
+enum BraceModeContext {
+    ObjectExpression,
+    Block,
 }
 
 impl Expression {
@@ -70,6 +83,7 @@ impl Expression {
 pub struct Parser {
     tokens: Vec<Token>,
     current_token: usize,
+    brace_mode: BraceModeContext,
 }
 
 impl Parser {
@@ -77,6 +91,7 @@ impl Parser {
         Parser {
             tokens,
             current_token: 0,
+            brace_mode: BraceModeContext::Block,
         }
     }
 
@@ -193,6 +208,8 @@ impl Parser {
             )));
         }
 
+        self.brace_mode = BraceModeContext::Block;
+
         let body = self.parse_obrace()?;
 
         Ok(Expression::FunctionDeclaration {
@@ -246,13 +263,18 @@ impl Parser {
 
         let expect_identifier_token = expect_identifier_token.clone();
 
-        match self.parse_expression() {
-            Ok(expr) => Ok(Expression::LetVariableDeclaration {
+        // Do not treat { } as blocks from here.
+        self.brace_mode = BraceModeContext::ObjectExpression;
+        let res = match self.parse_expression() {
+            Ok(expr) => Expression::LetVariableDeclaration {
                 name: expect_identifier_token.text,
                 initializer: Box::from(expr),
-            }),
-            Err(err) => Err(err),
-        }
+            },
+            Err(err) => return Err(err),
+        };
+        // back
+        self.brace_mode = BraceModeContext::Block;
+        Ok(res)
     }
 
     fn parse_number(&mut self) -> Result<Expression, EngineError> {
@@ -451,6 +473,44 @@ impl Parser {
         let end = self.current_token;
 
         let spliced = &self.tokens[start..end];
+
+        if matches!(self.brace_mode, BraceModeContext::ObjectExpression) {
+            let mut parser = Self::new(spliced.to_vec());
+            let mut properties = vec![];
+
+            while parser.current_token < parser.tokens.len() {
+                let name_identifier = parser.parse_identifier()?;
+                parser.current_token += 1;
+
+                let expect_colon = parser
+                    .tokens
+                    .get(parser.current_token)
+                    .ok_or(EngineError::parser_error(
+                        "Expected COLON in object expression",
+                    ))?
+                    .clone();
+
+                if !matches!(expect_colon.kind, TokenKind::Colon) {
+                    return Err(EngineError::parser_error(format!(
+                        "Expected COLON in object expression, got: {expect_colon:#?}"
+                    )));
+                }
+
+                parser.current_token += 1;
+                parser.brace_mode = BraceModeContext::ObjectExpression;
+
+                let initializer = parser.parse_expression()?;
+
+                parser.current_token += 2;
+
+                properties.push(Expression::PropertyAssignment {
+                    name: Box::new(name_identifier),
+                    initializer: Box::new(initializer),
+                });
+            }
+
+            return Ok(Expression::ObjectLiteralExpression { properties });
+        }
 
         let mut parser = Self::new(spliced.to_vec());
 

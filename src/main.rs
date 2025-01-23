@@ -23,7 +23,7 @@ mod tokenizer;
 fn main() -> ExitCode {
     let source = String::from(
         "
-c.b() + a[2]()
+let x = {x: {b: {c: \"1\", f: 2}}}
             ",
     ); // 3
     let mut tokens = vec![];

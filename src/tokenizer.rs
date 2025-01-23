@@ -9,8 +9,8 @@ pub enum TokenKind {
     Divide,
     OpenParen,    // (
     CloseParen,   // )
-    OpenBrace,    // }
-    CloseBrace,   // {
+    OpenBrace,    // {
+    CloseBrace,   // }
     OpenBracket,  // [
     CloseBracket, // ]
     Semicolon,
@@ -24,6 +24,7 @@ pub enum TokenKind {
     EqualsEqualsEquals,
     Comma,
     Dot,
+    Colon, // :
 }
 
 #[derive(Debug, Clone)]
@@ -290,6 +291,7 @@ impl Tokenizer {
                     ';' => Token::build(self, TokenKind::Semicolon, char_str, start),
                     ',' => Token::build(self, TokenKind::Comma, char_str, start),
                     '.' => Token::build(self, TokenKind::Dot, char_str, start),
+                    ':' => Token::build(self, TokenKind::Colon, char_str, start),
                     _ => Some(Err(EngineError::tokenizer_unknown_token(
                         char_str,
                         self.cursor.column,
