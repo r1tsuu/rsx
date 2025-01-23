@@ -41,14 +41,14 @@ pub enum Expression {
         expression: Box<Expression>,
     },
     FunctionCall {
-        name: String,
+        name: Box<Expression>,
         arguments: Vec<Expression>,
     },
     FunctionParameter {
         name: String,
     },
     PropertyAccessExpression {
-        name: String,
+        name: Box<Expression>,
         expression: Box<Expression>,
     },
 }
@@ -61,7 +61,6 @@ impl Expression {
             Self::LetVariableDeclaration { name, .. } => name.clone(),
             Self::FunctionParameter { name, .. } => name.clone(),
             Self::FunctionDeclaration { name, .. } => name.clone(),
-            Self::PropertyAccessExpression { name, .. } => name.clone(),
             _ => panic!(),
         }
     }
@@ -270,7 +269,7 @@ impl Parser {
                     });
                 }
 
-                self.parse_binary_op_expression()
+                self.parse_binary_op_expression(None)
             }
             None => Ok(Expression::NumberLiteral {
                 value: token.text.parse::<f32>().unwrap(),
@@ -293,77 +292,125 @@ impl Parser {
             None => return Err(EngineError::parser_error("Unexpected identifier")),
         };
 
-        match self.tokens.get(self.current_token + 1) {
-            Some(next_token) => {
-                println!("{next_token:#?}");
-                if next_token.is_binary_operator() {
-                    self.parse_binary_op_expression()
-                } else if next_token.is_oparen() {
-                    self.current_token += 1;
-                    let arguments = self.parse_oparen_as_function_arguments()?;
-                    Ok(Expression::FunctionCall {
-                        name: token.text,
-                        arguments,
-                    })
-                } else if next_token.is_dot() {
-                    let mut assigments = vec![&token];
+        let next_token = match self.tokens.get(self.current_token + 1) {
+            None => return Ok(Expression::Identifier { name: token.text }),
+            Some(value) => value,
+        };
 
-                    let mut next_token = Some(next_token);
+        let expr = if next_token.is_dot() || next_token.is_obracket() {
+            let mut assigments = vec![Expression::Identifier { name: token.text }];
+            let mut next_token = Some(next_token);
+
+            loop {
+                if next_token.unwrap().is_obracket() {
+                    let mut extra_brackets: usize = 0;
+                    let mut cbracket_i = self.current_token + 2;
 
                     loop {
-                        self.current_token += 2;
-                        let token = self
-                            .tokens
-                            .get(self.current_token)
-                            .ok_or(EngineError::parser_error("Expected next token after dot"))?;
-
-                        if !matches!(token.kind, TokenKind::Identifier) {
-                            return Err(EngineError::parser_error(format!(
-                                "Expected next identifier token after dot, got: {token:#?}"
-                            )));
-                        }
-
-                        assigments.push(token);
-
-                        next_token = self.tokens.get(self.current_token + 1);
-
-                        if let Some(next_token) = next_token {
-                            if !next_token.is_dot() {
-                                break;
+                        if let Some(current) = self.tokens.get(cbracket_i) {
+                            if current.is_obracket() {
+                                extra_brackets += 1;
+                            } else if current.is_cbracket() {
+                                if extra_brackets == 0 {
+                                    break;
+                                } else {
+                                    extra_brackets -= 1;
+                                }
                             }
+
+                            cbracket_i += 1;
                         } else {
-                            break;
+                            return Err(EngineError::parser_error("Could not find CBRACKET"));
                         }
                     }
 
-                    let mut expr: Option<Expression> = None;
+                    let mut bracket_parser =
+                        Parser::new(self.tokens[self.current_token + 2..cbracket_i].to_vec());
 
-                    for ass in assigments {
-                        let current_name = ass.text.clone();
+                    assigments.push(bracket_parser.parse_expression()?);
+                    self.current_token += bracket_parser.current_token + 3;
+                    next_token = self.tokens.get(self.current_token + 1);
+                } else {
+                    self.current_token += 2;
+                    let token = self
+                        .tokens
+                        .get(self.current_token)
+                        .ok_or(EngineError::parser_error("Expected next token after dot"))?;
 
-                        if let Some(some_expr) = expr {
-                            expr = Some(Expression::PropertyAccessExpression {
-                                name: current_name,
-                                expression: Box::new(some_expr),
-                            });
-                        } else {
-                            expr = Some(Expression::Identifier { name: current_name });
-                        }
+                    if !matches!(token.kind, TokenKind::Identifier) {
+                        return Err(EngineError::parser_error(format!(
+                            "Expected next identifier token after dot, got: {token:#?}"
+                        )));
                     }
 
-                    if let Some(expr) = expr {
-                        Ok(expr)
-                    } else {
-                        Err(EngineError::parser_error(
-                            "Failed to parse PropertyAccessExpression",
-                        ))
+                    assigments.push(Expression::Identifier {
+                        name: token.text.clone(),
+                    });
+
+                    next_token = self.tokens.get(self.current_token + 1);
+                }
+
+                if let Some(next_token) = next_token {
+                    if !next_token.is_dot() && !next_token.is_obracket() {
+                        break;
                     }
                 } else {
-                    Ok(Expression::Identifier { name: token.text })
+                    break;
                 }
             }
-            None => Ok(Expression::Identifier { name: token.text }),
-        }
+
+            let mut expr: Option<Expression> = None;
+
+            for ass in assigments {
+                if let Some(some_expr) = expr {
+                    expr = Some(Expression::PropertyAccessExpression {
+                        name: Box::new(ass),
+                        expression: Box::new(some_expr),
+                    });
+                } else {
+                    expr = Some(ass);
+                }
+            }
+
+            if let Some(expr) = expr {
+                expr
+            } else {
+                return Err(EngineError::parser_error(
+                    "Failed to parse PropertyAccessExpression",
+                ));
+            }
+        } else {
+            Expression::Identifier { name: token.text }
+        };
+
+        let next_token = match self.tokens.get(self.current_token + 1) {
+            None => return Ok(expr),
+            Some(value) => value,
+        };
+
+        let expr = if next_token.is_oparen() {
+            self.current_token += 1;
+            let arguments = self.parse_oparen_as_function_arguments()?;
+            Expression::FunctionCall {
+                name: Box::new(expr),
+                arguments,
+            }
+        } else {
+            expr
+        };
+
+        let next_token = match self.tokens.get(self.current_token + 1) {
+            None => return Ok(expr),
+            Some(value) => value,
+        };
+
+        let expr = if next_token.is_binary_operator() {
+            self.parse_binary_op_expression(Some(expr))?
+        } else {
+            expr
+        };
+
+        return Ok(expr);
     }
 
     fn parse_obrace(&mut self) -> Result<Expression, EngineError> {
@@ -651,18 +698,38 @@ impl Parser {
             }
         }
 
-        self.current_token = end + 1;
+        self.current_token = end;
 
         Ok(expressions)
     }
 
-    fn parse_binary_op_expression(&mut self) -> Result<Expression, EngineError> {
-        let left_token = match self.tokens.get(self.current_token) {
-            Some(val) => val,
-            None => {
-                return Err(EngineError::parser_error(
-                    "parse_binary_op_expression expected token",
-                ));
+    fn parse_binary_op_expression(
+        &mut self,
+        left_expression: Option<Expression>,
+    ) -> Result<Expression, EngineError> {
+        let left = if let Some(left_expression) = left_expression {
+            left_expression
+        } else {
+            match self.tokens.get(self.current_token) {
+                Some(left_token) => match left_token.kind {
+                    TokenKind::Identifier => Expression::Identifier {
+                        name: left_token.clone().text,
+                    },
+                    TokenKind::Number => Expression::NumberLiteral {
+                        value: left_token.text.parse::<f32>().unwrap(),
+                    },
+                    _ => {
+                        return Err(EngineError::parser_error(format!(
+                            "parse_binary_op_expression unexpected left token {:#?}",
+                            left_token
+                        )));
+                    }
+                },
+                None => {
+                    return Err(EngineError::parser_error(
+                        "parse_binary_op_expression expected token",
+                    ));
+                }
             }
         };
 
@@ -677,26 +744,11 @@ impl Parser {
 
         self.current_token += 2;
 
-        let left = match left_token.kind {
-            TokenKind::Identifier => Box::from(Expression::Identifier {
-                name: left_token.clone().text,
-            }),
-            TokenKind::Number => Box::from(Expression::NumberLiteral {
-                value: left_token.text.parse::<f32>().unwrap(),
-            }),
-            _ => {
-                return Err(EngineError::parser_error(format!(
-                    "parse_binary_op_expression unexpected left token {:#?}",
-                    left_token
-                )));
-            }
-        };
-
         match self.parse_expression() {
             Ok(right) => Ok(Expression::BinaryOp {
-                left,
+                left: Box::new(left),
                 op,
-                right: Box::from(right),
+                right: Box::new(right),
             }),
             Err(err) => Err(err),
         }

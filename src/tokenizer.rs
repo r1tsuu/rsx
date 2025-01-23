@@ -7,10 +7,12 @@ pub enum TokenKind {
     Minus,
     Multiply,
     Divide,
-    OpenParen,  // (
-    CloseParen, // )
-    OpenBrace,  // }
-    CloseBrace, // {
+    OpenParen,    // (
+    CloseParen,   // )
+    OpenBrace,    // }
+    CloseBrace,   // {
+    OpenBracket,  // [
+    CloseBracket, // ]
     Semicolon,
     Let,
     Function,
@@ -57,6 +59,20 @@ impl Token {
     pub fn is_dot(&self) -> bool {
         match self.kind {
             TokenKind::Dot => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_obracket(&self) -> bool {
+        match self.kind {
+            TokenKind::OpenBracket => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_cbracket(&self) -> bool {
+        match self.kind {
+            TokenKind::CloseBracket => true,
             _ => false,
         }
     }
@@ -269,6 +285,8 @@ impl Tokenizer {
                     ')' => Token::build(self, TokenKind::CloseParen, char_str, start),
                     '{' => Token::build(self, TokenKind::OpenBrace, char_str, start),
                     '}' => Token::build(self, TokenKind::CloseBrace, char_str, start),
+                    '[' => Token::build(self, TokenKind::OpenBracket, char_str, start),
+                    ']' => Token::build(self, TokenKind::CloseBracket, char_str, start),
                     ';' => Token::build(self, TokenKind::Semicolon, char_str, start),
                     ',' => Token::build(self, TokenKind::Comma, char_str, start),
                     '.' => Token::build(self, TokenKind::Dot, char_str, start),

@@ -300,26 +300,16 @@ impl ExpressionEvaluator {
 
     fn evaluate_function_call(
         &self,
-        name: String,
+        name: Expression,
         arguments_expressions: Vec<Expression>,
     ) -> Result<JavascriptObjectRef, EngineError> {
-        let try_function = self
-            .ctx
-            .borrow()
-            .get_current_scope()
-            .borrow()
-            .get(name.clone())
-            .ok_or(EngineError::execution_engine_error(format!(
-                "Tried to call {} no variable exists",
-                name
-            )))?;
+        let try_function = self.evaluate_expression(name)?;
 
         let function = match try_function.borrow().kind.clone() {
             crate::javascript_object::JavascriptObjectKind::Function { value } => value,
             _ => {
                 return Err(EngineError::execution_engine_error(format!(
-                    "Tried to call {} - not a function, got: {:#?}",
-                    name, try_function
+                    "Tried to call not a function",
                 )))
             }
         };
@@ -484,7 +474,7 @@ impl ExpressionEvaluator {
                 ..
             } => self.evaluate_function_declaration(name, parameters, *body),
             Expression::FunctionCall { name, arguments } => {
-                self.evaluate_function_call(name, arguments)
+                self.evaluate_function_call(*name, arguments)
             }
             Expression::NumberLiteral { value } => self.evaluate_number_literal(value),
             Expression::Parenthesized { expression } => self.evaluate_parenthesized(*expression),
