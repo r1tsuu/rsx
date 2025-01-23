@@ -494,6 +494,7 @@ impl ExpressionEvaluator {
             Expression::FunctionParameter { .. } => Err(EngineError::execution_engine_error(
                 "Function parameter cannot be evaluated by its own!",
             )),
+            _ => unimplemented!(),
         };
 
         self.ctx.borrow_mut().execution_tick += 1;

@@ -21,6 +21,7 @@ pub enum TokenKind {
     EqualsEquals,
     EqualsEqualsEquals,
     Comma,
+    Dot,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +50,13 @@ impl Token {
     pub fn is_oparen(&self) -> bool {
         match self.kind {
             TokenKind::OpenParen => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_dot(&self) -> bool {
+        match self.kind {
+            TokenKind::Dot => true,
             _ => false,
         }
     }
@@ -263,6 +271,7 @@ impl Tokenizer {
                     '}' => Token::build(self, TokenKind::CloseBrace, char_str, start),
                     ';' => Token::build(self, TokenKind::Semicolon, char_str, start),
                     ',' => Token::build(self, TokenKind::Comma, char_str, start),
+                    '.' => Token::build(self, TokenKind::Dot, char_str, start),
                     _ => Some(Err(EngineError::tokenizer_unknown_token(
                         char_str,
                         self.cursor.column,

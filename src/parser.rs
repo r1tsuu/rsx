@@ -47,6 +47,10 @@ pub enum Expression {
     FunctionParameter {
         name: String,
     },
+    PropertyAccessExpression {
+        name: String,
+        expression: Box<Expression>,
+    },
 }
 
 impl Expression {
@@ -57,6 +61,7 @@ impl Expression {
             Self::LetVariableDeclaration { name, .. } => name.clone(),
             Self::FunctionParameter { name, .. } => name.clone(),
             Self::FunctionDeclaration { name, .. } => name.clone(),
+            Self::PropertyAccessExpression { name, .. } => name.clone(),
             _ => panic!(),
         }
     }
@@ -212,14 +217,10 @@ impl Parser {
             _ => {}
         };
 
-        let expect_identifier_token = match self.tokens.get(self.current_token + 1) {
-            Some(val) => val,
-            None => {
-                return Err(EngineError::parser_error(
-                    "Expected identifier token after let",
-                ))
-            }
-        };
+        let expect_identifier_token = self
+            .tokens
+            .get(self.current_token + 1)
+            .ok_or_else(|| EngineError::parser_error("Expected identifier token after let"))?;
 
         if expect_identifier_token.kind != TokenKind::Identifier {
             return Err(EngineError::parser_error(
@@ -294,6 +295,7 @@ impl Parser {
 
         match self.tokens.get(self.current_token + 1) {
             Some(next_token) => {
+                println!("{next_token:#?}");
                 if next_token.is_binary_operator() {
                     self.parse_binary_op_expression()
                 } else if next_token.is_oparen() {
@@ -303,6 +305,59 @@ impl Parser {
                         name: token.text,
                         arguments,
                     })
+                } else if next_token.is_dot() {
+                    let mut assigments = vec![&token];
+
+                    let mut next_token = Some(next_token);
+
+                    loop {
+                        self.current_token += 2;
+                        let token = self
+                            .tokens
+                            .get(self.current_token)
+                            .ok_or(EngineError::parser_error("Expected next token after dot"))?;
+
+                        if !matches!(token.kind, TokenKind::Identifier) {
+                            return Err(EngineError::parser_error(format!(
+                                "Expected next identifier token after dot, got: {token:#?}"
+                            )));
+                        }
+
+                        assigments.push(token);
+
+                        next_token = self.tokens.get(self.current_token + 1);
+
+                        if let Some(next_token) = next_token {
+                            if !next_token.is_dot() {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+
+                    let mut expr: Option<Expression> = None;
+
+                    for ass in assigments {
+                        let current_name = ass.text.clone();
+
+                        if let Some(some_expr) = expr {
+                            expr = Some(Expression::PropertyAccessExpression {
+                                name: current_name,
+                                expression: Box::new(some_expr),
+                            });
+                        } else {
+                            expr = Some(Expression::Identifier { name: current_name });
+                        }
+                    }
+
+                    if let Some(expr) = expr {
+                        Ok(expr)
+                    } else {
+                        Err(EngineError::parser_error(
+                            "Failed to parse PropertyAccessExpression",
+                        ))
+                    }
                 } else {
                     Ok(Expression::Identifier { name: token.text })
                 }

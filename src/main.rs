@@ -8,6 +8,7 @@ use std::{
 };
 
 use execution_engine::ExpressionEvaluator;
+use javascript_object::JavascriptObject;
 use parser::Parser;
 use tokenizer::Tokenizer;
 mod error;
@@ -20,61 +21,62 @@ mod tests;
 mod tokenizer;
 
 fn main() -> ExitCode {
-    //     let source = String::from(
-    //         "
-    // x(1,2)
-    //         ",
-    //     ); // 3
-    //     let mut tokens = vec![];
-
-    //     let mut z = 1;
-
-    //     let mut a = || z = 3;
-
-    //     a();
-
-    //     for token in Tokenizer::from_source(source.to_string()).to_iter() {
-    //         match token {
-    //             Ok(token) => tokens.push(token),
-    //             Err(err) => {
-    //                 err.print();
-    //                 return ExitCode::FAILURE;
-    //             }
-    //         };
-    //     }
-
-    //     let program = Parser::new(tokens).parse_program();
-    //     println!("{program:#?}");
-
-    //     ExitCode::SUCCESS
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_micros();
-
     let source = String::from(
         "
-let c = 1;
-        function a(x) {
-    return c+1;}; a(3);",
+x.c.d.f
+            ",
     ); // 3
+    let mut tokens = vec![];
 
-    match ExpressionEvaluator::evaluate_source(source) {
-        Ok(value) => {
-            println!(
-                "Executed with value: {value:?}, time: {}",
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_micros()
-                    - now
-            );
-            ExitCode::SUCCESS
-        }
-        Err(err) => {
-            err.print();
-            ExitCode::FAILURE
-        }
+    for token in Tokenizer::from_source(source.to_string()).to_iter() {
+        match token {
+            Ok(token) => tokens.push(token),
+            Err(err) => {
+                err.print();
+                return ExitCode::FAILURE;
+            }
+        };
     }
+
+    let program = Parser::new(tokens).parse_program();
+    println!("{program:#?}");
+
+    ExitCode::SUCCESS
+
+    //     let now = SystemTime::now()
+    //         .duration_since(UNIX_EPOCH)
+    //         .unwrap()
+    //         .as_micros();
+
+    //     let source = String::from(
+    //         "
+    // function one() {
+    //         return 1;
+    // }
+
+    // function apply(f) {
+    //         return f();
+    // }
+
+    // apply(one);
+    //         ",
+    //     ); // 3
+
+    //     match ExpressionEvaluator::evaluate_source(source) {
+    //         Ok(value) => {
+    //             println!(
+    //                 "Executed with value: {value:?}, time: {}",
+    //                 SystemTime::now()
+    //                     .duration_since(UNIX_EPOCH)
+    //                     .unwrap()
+    //                     .as_micros()
+    //                     - now
+    //             );
+    //             ExitCode::SUCCESS
+    //         }
+    //         Err(err) => {
+    //             err.print();
+    //             ExitCode::FAILURE
+    //         }
+    //     }
 }
