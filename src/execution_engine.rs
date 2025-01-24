@@ -1,22 +1,16 @@
-use std::{
-    cell::{RefCell, RefMut},
-    rc::Rc,
-};
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     error::EngineError,
     execution_scope::{ExecutionScope, ExecutionScopeRef},
-    javascript_object::{
-        JavascriptFunctionContext, JavascriptFunctionObjectValue, JavascriptObjectRef,
-    },
-    memory::{Memory, MemoryRef},
+    js_value::{JSFunctionArgs, JSValue, JSValueRef},
     parser::{Expression, Parser},
     tokenizer::{Token, TokenKind, Tokenizer},
 };
 
 pub struct FunctionCallStackContext {
-    function_ptr: JavascriptObjectRef,
-    return_value: JavascriptObjectRef,
+    function_ptr: JSValueRef,
+    return_value: JSValueRef,
     error: Option<EngineError>,
     should_return: bool,
 }
@@ -27,47 +21,36 @@ pub struct ExpressionEvaluator {
 
 pub struct ExecutionContext {
     scopes: Vec<ExecutionScopeRef>,
-    memory: MemoryRef,
     execution_tick: u64,
     call_stack: Vec<FunctionCallStackContext>,
 }
 
 impl ExecutionContext {
     fn initialize_global_scope(&mut self) {
-        let global_scope = Rc::new(RefCell::new(ExecutionScope::new(None, self.memory.clone())));
+        let global_scope = Rc::new(RefCell::new(ExecutionScope::new(None)));
 
         global_scope
             .borrow_mut()
-            .define(
-                UNDEFINED_NAME.to_string(),
-                self.memory.borrow_mut().allocate_undefined(),
-            )
+            .define(UNDEFINED_NAME.to_string(), JSValue::new_undefined())
             .unwrap();
 
         global_scope
             .borrow_mut()
-            .define(
-                TRUE_NAME.to_string(),
-                self.memory.borrow_mut().allocate_boolean(true),
-            )
+            .define(TRUE_NAME.to_string(), JSValue::new_boolean(true))
             .unwrap();
 
         global_scope
             .borrow_mut()
-            .define(
-                FALSE_NAME.to_string(),
-                self.memory.borrow_mut().allocate_boolean(false),
-            )
+            .define(FALSE_NAME.to_string(), JSValue::new_boolean(false))
             .unwrap();
 
         self.scopes.push(global_scope);
     }
 
     fn enter_scope(&mut self) -> ExecutionScopeRef {
-        let scope = Rc::new(RefCell::new(ExecutionScope::new(
-            Some(self.get_current_scope()),
-            self.memory.clone(),
-        )));
+        let scope = Rc::new(RefCell::new(ExecutionScope::new(Some(
+            self.get_current_scope(),
+        ))));
 
         self.scopes.push(scope.clone());
 
@@ -82,14 +65,14 @@ impl ExecutionContext {
         self.scopes.get(0).unwrap().clone()
     }
 
-    fn get_undefined(&self) -> JavascriptObjectRef {
+    fn get_undefined(&self) -> JSValueRef {
         self.get_global_scope()
             .borrow()
             .get(UNDEFINED_NAME.to_string())
             .unwrap()
     }
 
-    fn get_boolean(&self, value: bool) -> JavascriptObjectRef {
+    fn get_boolean(&self, value: bool) -> JSValueRef {
         self.get_global_scope()
             .borrow()
             .get((if value { TRUE_NAME } else { FALSE_NAME }).to_string())
@@ -104,20 +87,12 @@ impl ExecutionContext {
         self.call_stack.last_mut().unwrap()
     }
 
-    fn collect_garbage(&mut self) {
-        for scope in self.scopes.iter() {
-            self.memory
-                .borrow_mut()
-                .deallocate_except_ids(&scope.borrow().get_variable_ids());
-        }
-    }
-
     fn set_current_function_error(&mut self, err: EngineError) -> EngineError {
         self.call_stack.last_mut().unwrap().error = Some(err.clone());
         err
     }
 
-    fn set_current_function_return(&mut self, value: JavascriptObjectRef) {
+    fn set_current_function_return(&mut self, value: JSValueRef) {
         self.call_stack.last_mut().unwrap().should_return = true;
         self.call_stack.last_mut().unwrap().return_value = value;
     }
@@ -133,7 +108,6 @@ impl ExpressionEvaluator {
     fn new() -> Self {
         let ctx = Rc::new(RefCell::new(ExecutionContext {
             scopes: vec![],
-            memory: Rc::new(RefCell::new(Memory::new())),
             execution_tick: 0,
             call_stack: vec![],
         }));
@@ -148,7 +122,7 @@ impl ExpressionEvaluator {
         expression_executor
     }
 
-    pub fn evaluate_source<T: ToString>(source: T) -> Result<JavascriptObjectRef, EngineError> {
+    pub fn evaluate_source<T: ToString>(source: T) -> Result<JSValueRef, EngineError> {
         let mut tokens = vec![];
 
         for token in Tokenizer::from_source(source.to_string()).to_iter() {
@@ -164,10 +138,7 @@ impl ExpressionEvaluator {
         }
     }
 
-    fn evaluate_program(
-        &self,
-        expressions: Vec<Expression>,
-    ) -> Result<JavascriptObjectRef, EngineError> {
+    fn evaluate_program(&self, expressions: Vec<Expression>) -> Result<JSValueRef, EngineError> {
         for (index, expr) in expressions.iter().enumerate() {
             match self.evaluate_expression(expr.clone()) {
                 Err(err) => return Err(err),
@@ -186,7 +157,7 @@ impl ExpressionEvaluator {
         &self,
         name: String,
         initializer: Expression,
-    ) -> Result<JavascriptObjectRef, EngineError> {
+    ) -> Result<JSValueRef, EngineError> {
         let object = self.evaluate_expression(initializer)?;
         self.ctx
             .borrow_mut()
@@ -195,19 +166,13 @@ impl ExpressionEvaluator {
             .define(name, object)
     }
 
-    fn evaluate_function_return(
-        &self,
-        expression: Expression,
-    ) -> Result<JavascriptObjectRef, EngineError> {
+    fn evaluate_function_return(&self, expression: Expression) -> Result<JSValueRef, EngineError> {
         let res = self.evaluate_expression(expression)?;
         self.ctx.borrow_mut().set_current_function_return(res);
         Ok(self.ctx.borrow().get_undefined())
     }
 
-    fn evaluate_block(
-        &self,
-        expressions: Vec<Expression>,
-    ) -> Result<JavascriptObjectRef, EngineError> {
+    fn evaluate_block(&self, expressions: Vec<Expression>) -> Result<JSValueRef, EngineError> {
         self.ctx.clone().borrow_mut().enter_scope();
 
         for (index, expr) in expressions.iter().enumerate() {
@@ -243,24 +208,21 @@ impl ExpressionEvaluator {
         name: String,
         parameters: Vec<Expression>,
         body: Expression,
-    ) -> Result<JavascriptObjectRef, EngineError> {
+    ) -> Result<JSValueRef, EngineError> {
         let parameters = parameters.clone();
 
-        let func = move |func_ctx: JavascriptFunctionContext| {
-            for (arg_i, arg) in func_ctx.arguments.iter().enumerate() {
+        let func = move |func_ctx: JSFunctionArgs| {
+            for (arg_i, arg) in func_ctx.js_args.iter().enumerate() {
                 if let Some(parameter) = parameters.get(arg_i) {
                     match func_ctx
-                        .execution_context
+                        .ctx
                         .borrow()
                         .get_current_scope()
                         .borrow_mut()
                         .define(parameter.unwrap_name(), arg.clone())
                     {
                         Err(err) => {
-                            func_ctx
-                                .execution_context
-                                .borrow_mut()
-                                .set_current_function_error(err);
+                            func_ctx.ctx.borrow_mut().set_current_function_error(err);
 
                             return;
                         }
@@ -270,7 +232,7 @@ impl ExpressionEvaluator {
             }
 
             let executor = ExpressionEvaluator {
-                ctx: func_ctx.execution_context.clone(),
+                ctx: func_ctx.ctx.clone(),
             };
 
             let res = executor.evaluate_expression(body.clone());
@@ -286,10 +248,7 @@ impl ExpressionEvaluator {
             }
         };
 
-        let func = self
-            .memory()
-            .borrow_mut()
-            .allocate_function(Rc::new(RefCell::new(func)));
+        let func = JSValue::new_function(func);
 
         self.ctx
             .borrow()
@@ -302,11 +261,11 @@ impl ExpressionEvaluator {
         &self,
         name: Expression,
         arguments_expressions: Vec<Expression>,
-    ) -> Result<JavascriptObjectRef, EngineError> {
+    ) -> Result<JSValueRef, EngineError> {
         let try_function = self.evaluate_expression(name)?;
 
         let function = match try_function.borrow().kind.clone() {
-            crate::javascript_object::JavascriptObjectKind::Function { value } => value,
+            crate::js_value::JSValueKind::Function { value } => value,
             _ => {
                 return Err(EngineError::execution_engine_error(format!(
                     "Tried to call not a function",
@@ -322,9 +281,9 @@ impl ExpressionEvaluator {
         }
 
         let context = {
-            JavascriptFunctionContext {
-                execution_context: self.ctx.clone(),
-                arguments,
+            JSFunctionArgs {
+                ctx: self.ctx.clone(),
+                js_args: arguments,
             }
         };
 
@@ -351,22 +310,19 @@ impl ExpressionEvaluator {
         }
     }
 
-    fn evaluate_number_literal(&self, value: f32) -> Result<JavascriptObjectRef, EngineError> {
-        Ok(self.memory().borrow_mut().allocate_number(value))
+    fn evaluate_number_literal(&self, value: f32) -> Result<JSValueRef, EngineError> {
+        Ok(JSValue::new_number(value))
     }
 
-    fn evaluate_string_literal(&self, value: String) -> Result<JavascriptObjectRef, EngineError> {
-        Ok(self.memory().borrow_mut().allocate_string(value))
+    fn evaluate_string_literal(&self, value: String) -> Result<JSValueRef, EngineError> {
+        Ok(JSValue::new_string(value))
     }
 
-    fn evaluate_parenthesized(
-        &self,
-        expression: Expression,
-    ) -> Result<JavascriptObjectRef, EngineError> {
+    fn evaluate_parenthesized(&self, expression: Expression) -> Result<JSValueRef, EngineError> {
         self.evaluate_expression(expression)
     }
 
-    fn evaluate_identifier(&self, name: String) -> Result<JavascriptObjectRef, EngineError> {
+    fn evaluate_identifier(&self, name: String) -> Result<JSValueRef, EngineError> {
         match self
             .ctx
             .borrow()
@@ -387,7 +343,7 @@ impl ExpressionEvaluator {
         left: Expression,
         op: Token,
         right: Expression,
-    ) -> Result<JavascriptObjectRef, EngineError> {
+    ) -> Result<JSValueRef, EngineError> {
         if op.is_equals() {
             match left.clone() {
                 Expression::Identifier { name } => {
@@ -437,16 +393,16 @@ impl ExpressionEvaluator {
                 .ctx
                 .borrow()
                 .get_boolean(left_result.borrow().is_equal_to_non_strict(&right_result))),
-            TokenKind::Plus => Ok(self.memory().borrow_mut().allocate_number(
+            TokenKind::Plus => Ok(JSValue::new_number(
                 left_result.borrow().cast_to_number() + right_result.borrow().cast_to_number(),
             )),
-            TokenKind::Minus => Ok(self.memory().borrow_mut().allocate_number(
+            TokenKind::Minus => Ok(JSValue::new_number(
                 left_result.borrow().cast_to_number() - right_result.borrow().cast_to_number(),
             )),
-            TokenKind::Multiply => Ok(self.memory().borrow_mut().allocate_number(
+            TokenKind::Multiply => Ok(JSValue::new_number(
                 left_result.borrow().cast_to_number() * right_result.borrow().cast_to_number(),
             )),
-            TokenKind::Divide => Ok(self.memory().borrow_mut().allocate_number(
+            TokenKind::Divide => Ok(JSValue::new_number(
                 left_result.borrow().cast_to_number() / right_result.borrow().cast_to_number(),
             )),
             _ => Err(EngineError::execution_engine_error(format!(
@@ -456,10 +412,7 @@ impl ExpressionEvaluator {
         }
     }
 
-    fn evaluate_expression(
-        &self,
-        expression: Expression,
-    ) -> Result<JavascriptObjectRef, EngineError> {
+    fn evaluate_expression(&self, expression: Expression) -> Result<JSValueRef, EngineError> {
         let result = match expression {
             Expression::Program { expressions } => self.evaluate_program(expressions),
             Expression::LetVariableDeclaration { name, initializer } => {
@@ -487,16 +440,6 @@ impl ExpressionEvaluator {
             _ => unimplemented!(),
         };
 
-        self.ctx.borrow_mut().execution_tick += 1;
-
-        if self.ctx.borrow().execution_tick % 10 == 0 {
-            self.ctx.borrow_mut().collect_garbage();
-        }
-
         result
-    }
-
-    fn memory(&self) -> MemoryRef {
-        self.ctx.borrow().memory.clone()
     }
 }

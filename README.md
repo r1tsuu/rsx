@@ -24,11 +24,11 @@ x // ExecutionEngine::execute_source evaluates to JavascriptObject { String { va
 ```
 5. Functions
 ```js
-function x(a) {
-  return a + 1;
+function x(a, b) { 
+  return a + b;
 }
 
-x(1); // Evaluates to 6
+x(2, 3); // evaluates to 5
 ```
 
 More  (objects) soon!

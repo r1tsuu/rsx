@@ -8,14 +8,13 @@ use std::{
 };
 
 use execution_engine::ExpressionEvaluator;
-use javascript_object::JavascriptObject;
+use js_value::JSValue;
 use parser::Parser;
 use tokenizer::Tokenizer;
 mod error;
 mod execution_engine;
 mod execution_scope;
-mod javascript_object;
-mod memory;
+mod js_value;
 mod parser;
 mod tests;
 mod tokenizer;
@@ -23,7 +22,7 @@ mod tokenizer;
 fn main() -> ExitCode {
     let source = String::from(
         "
-let x = {x: {b: {c: \"1\", f: 2}}}
+
             ",
     ); // 3
     let mut tokens = vec![];
@@ -39,6 +38,7 @@ let x = {x: {b: {c: \"1\", f: 2}}}
     }
 
     let program = Parser::new(tokens).parse_program();
+
     println!("{program:#?}");
 
     ExitCode::SUCCESS
