@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     error::EngineError,
     execution_scope::{ExecutionScope, ExecutionScopeRef},
-    js_value::{JSFunctionArgs, JSValue, JSValueRef},
+    js_value::{JSFunctionArgs, JSValue, JSValueKind, JSValueRef},
     parser::{Expression, Parser},
     tokenizer::{Token, TokenKind, Tokenizer},
 };
@@ -234,7 +234,7 @@ impl ExpressionEvaluator {
             }
         };
 
-        let func = JSValue::new_function(func);
+        let func = JSValue::new_function(func, Some(name));
 
         self.ctx.get_current_scope().define(name, func)
     }
@@ -247,7 +247,7 @@ impl ExpressionEvaluator {
         let try_function = self.evaluate_expression(name)?;
 
         let function = match &try_function.kind {
-            crate::js_value::JSValueKind::Function { value } => value,
+            JSValueKind::Function { value, .. } => value,
             _ => {
                 return Err(EngineError::execution_engine_error(format!(
                     "Tried to call not a function",

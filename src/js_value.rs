@@ -12,11 +12,20 @@ pub type JSFunctionValue = Rc<dyn Fn(JSFunctionArgs)>;
 
 #[derive(Clone)]
 pub enum JSValueKind {
-    Number { value: f32 },
-    String { value: String },
+    Number {
+        value: f32,
+    },
+    String {
+        value: String,
+    },
     Undefined,
-    Boolean { value: bool },
-    Function { value: JSFunctionValue },
+    Boolean {
+        value: bool,
+    },
+    Function {
+        value: JSFunctionValue,
+        name: Option<String>,
+    },
 }
 
 pub struct JSValue {
@@ -54,13 +63,14 @@ impl JSValue {
         Self::new(JSValueKind::Undefined)
     }
 
-    pub fn new_function<F>(value: F) -> JSValueRef
+    pub fn new_function<F>(value: F, name: Option<&str>) -> JSValueRef
     where
         F: Fn(JSFunctionArgs) + 'static,
     {
         // Assuming Self::new is a constructor that takes a JSValueKind enum variant.
         Self::new(JSValueKind::Function {
             value: Rc::new(value),
+            name: name.map(|x| x.to_string()),
         })
     }
 
@@ -91,17 +101,22 @@ impl JSValue {
 
     pub fn create_debug_string(&self) -> String {
         let type_val = match &self.kind {
-            JSValueKind::Boolean { .. } => "Boolean",
-            JSValueKind::Function { .. } => "Function",
-            JSValueKind::Number { .. } => "Number",
-            JSValueKind::String { .. } => "String",
-            JSValueKind::Undefined => "Undefined",
+            JSValueKind::Boolean { .. } => "Boolean".to_string(),
+            JSValueKind::Function { name, .. } => {
+                format!(
+                    "Function::{}",
+                    name.clone().unwrap_or("Anonymous".to_string())
+                )
+            }
+            JSValueKind::Number { .. } => "Number".to_string(),
+            JSValueKind::String { .. } => "String".to_string(),
+            JSValueKind::Undefined => "Undefined".to_string(),
         };
 
         let str = format!(
-            "JavascriptObject::{}, Address: 0x{:X}, Value: {}",
+            "JSValueKind::{}, Address: {:#?}, Value: {}",
             type_val,
-            self.addr(),
+            self as *const JSValue,
             self.cast_to_string()
         );
 
