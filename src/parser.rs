@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     error::EngineError,
     tokenizer::{Token, TokenKind},
@@ -12,19 +14,19 @@ pub enum Expression {
         value: String,
     },
     BinaryOp {
-        left: Box<Expression>,
+        left: Rc<Expression>,
         op: Token,
-        right: Box<Expression>,
+        right: Rc<Expression>,
     },
     Program {
         expressions: Vec<Expression>,
     },
     Parenthesized {
-        expression: Box<Expression>,
+        expression: Rc<Expression>,
     },
     LetVariableDeclaration {
         name: String,
-        initializer: Box<Expression>,
+        initializer: Rc<Expression>,
     },
     Identifier {
         name: String,
@@ -35,28 +37,28 @@ pub enum Expression {
     FunctionDeclaration {
         name: String,
         parameters: Vec<Expression>,
-        body: Box<Expression>,
+        body: Rc<Expression>,
     },
     FunctionReturn {
-        expression: Box<Expression>,
+        expression: Rc<Expression>,
     },
     FunctionCall {
-        name: Box<Expression>,
+        name: Rc<Expression>,
         arguments: Vec<Expression>,
     },
     FunctionParameter {
         name: String,
     },
     PropertyAccessExpression {
-        name: Box<Expression>,
-        expression: Box<Expression>,
+        name: Rc<Expression>,
+        expression: Rc<Expression>,
     },
     ObjectLiteralExpression {
         properties: Vec<Expression>,
     },
     PropertyAssignment {
-        name: Box<Expression>,
-        initializer: Box<Expression>,
+        name: Rc<Expression>,
+        initializer: Rc<Expression>,
     },
 }
 
@@ -215,7 +217,7 @@ impl Parser {
         Ok(Expression::FunctionDeclaration {
             name: expect_function_name_identifier_token.text,
             parameters: args,
-            body: Box::new(body),
+            body: Rc::new(body),
         })
     }
 
@@ -223,7 +225,7 @@ impl Parser {
         self.current_token += 1;
         let expression = self.parse_expression()?;
         Ok(Expression::FunctionReturn {
-            expression: Box::new(expression),
+            expression: Rc::new(expression),
         })
     }
 
@@ -268,7 +270,7 @@ impl Parser {
         let res = match self.parse_expression() {
             Ok(expr) => Expression::LetVariableDeclaration {
                 name: expect_identifier_token.text,
-                initializer: Box::from(expr),
+                initializer: Rc::from(expr),
             },
             Err(err) => return Err(err),
         };
@@ -386,8 +388,8 @@ impl Parser {
             for ass in assigments {
                 if let Some(some_expr) = expr {
                     expr = Some(Expression::PropertyAccessExpression {
-                        name: Box::new(ass),
-                        expression: Box::new(some_expr),
+                        name: Rc::new(ass),
+                        expression: Rc::new(some_expr),
                     });
                 } else {
                     expr = Some(ass);
@@ -414,7 +416,7 @@ impl Parser {
             self.current_token += 1;
             let arguments = self.parse_oparen_as_function_arguments()?;
             Expression::FunctionCall {
-                name: Box::new(expr),
+                name: Rc::new(expr),
                 arguments,
             }
         } else {
@@ -427,7 +429,7 @@ impl Parser {
         };
 
         let expr = if next_token.is_binary_operator() {
-            self.parse_binary_op_expression(Some(expr))?
+            self.parse_binary_op_expression(Some(&expr))?
         } else {
             expr
         };
@@ -504,8 +506,8 @@ impl Parser {
                 parser.current_token += 2;
 
                 properties.push(Expression::PropertyAssignment {
-                    name: Box::new(name_identifier),
-                    initializer: Box::new(initializer),
+                    name: Rc::new(name_identifier),
+                    initializer: Rc::new(initializer),
                 });
             }
 
@@ -581,7 +583,7 @@ impl Parser {
         self.current_token = end + 1;
 
         let expr = Expression::Parenthesized {
-            expression: Box::from(expression),
+            expression: Rc::from(expression),
         };
 
         match self.tokens.get(self.current_token) {
@@ -596,9 +598,9 @@ impl Parser {
 
                     match self.parse_expression() {
                         Ok(right) => Ok(Expression::BinaryOp {
-                            left: Box::from(expr),
+                            left: Rc::from(expr),
                             op,
-                            right: Box::from(right),
+                            right: Rc::from(right),
                         }),
                         Err(err) => Err(err),
                     }
@@ -765,10 +767,10 @@ impl Parser {
 
     fn parse_binary_op_expression(
         &mut self,
-        left_expression: Option<Expression>,
+        left_expression: Option<&Expression>,
     ) -> Result<Expression, EngineError> {
         let left = if let Some(left_expression) = left_expression {
-            left_expression
+            left_expression.clone()
         } else {
             match self.tokens.get(self.current_token) {
                 Some(left_token) => match left_token.kind {
@@ -805,20 +807,20 @@ impl Parser {
         self.current_token += 2;
 
         match self.parse_expression() {
-            Ok(right) => Ok(Expression::BinaryOp {
-                left: Box::new(left),
+            Ok(right) => Ok(Self::reorder_expression(&Expression::BinaryOp {
+                left: Rc::new(left),
                 op,
-                right: Box::new(right),
-            }),
+                right: Rc::new(right),
+            })),
             Err(err) => Err(err),
         }
     }
 
-    pub fn reorder_expression(expr: Expression) -> Expression {
+    pub fn reorder_expression(expr: &Expression) -> Expression {
         match expr {
             Expression::BinaryOp { left, op, right } => {
-                let left = Self::reorder_expression(*left);
-                let right = Self::reorder_expression(*right);
+                let left = Self::reorder_expression(left);
+                let right = Self::reorder_expression(right);
 
                 if let Expression::BinaryOp {
                     left: right_left,
@@ -828,13 +830,13 @@ impl Parser {
                 {
                     if Self::get_precedence(&op) > Self::get_precedence(&right_op) {
                         let new_left = Expression::BinaryOp {
-                            left: Box::from(left),
-                            op,
+                            left: Rc::from(left),
+                            op: op.clone(),
                             right: right_left,
                         };
 
                         return Expression::BinaryOp {
-                            left: Box::from(new_left),
+                            left: Rc::from(new_left),
                             op: right_op,
                             right: right_right,
                         };
@@ -842,12 +844,12 @@ impl Parser {
                 }
 
                 return Expression::BinaryOp {
-                    left: Box::from(left),
-                    op,
-                    right: Box::from(right),
+                    left: Rc::from(left),
+                    op: op.clone(),
+                    right: Rc::from(right),
                 };
             }
-            _ => expr,
+            _ => expr.clone(),
         }
     }
 

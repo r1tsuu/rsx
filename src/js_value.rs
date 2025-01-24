@@ -8,7 +8,7 @@ pub struct JSFunctionArgs {
     pub js_args: Vec<JSValueRef>,
 }
 
-pub type JSFunctionValue = Rc<RefCell<dyn Fn(JSFunctionArgs)>>;
+pub type JSFunctionValue = Rc<dyn Fn(JSFunctionArgs)>;
 
 #[derive(Clone)]
 pub enum JSValueKind {
@@ -23,7 +23,7 @@ pub struct JSValue {
     pub kind: JSValueKind,
 }
 
-pub type JSValueRef = Rc<RefCell<JSValue>>;
+pub type JSValueRef = Rc<JSValue>;
 
 impl fmt::Debug for JSValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -33,7 +33,7 @@ impl fmt::Debug for JSValue {
 
 impl JSValue {
     pub fn new(kind: JSValueKind) -> JSValueRef {
-        Rc::new(RefCell::new(Self { kind }))
+        Rc::new(Self { kind })
     }
 
     pub fn new_boolean(value: bool) -> JSValueRef {
@@ -44,8 +44,10 @@ impl JSValue {
         Self::new(JSValueKind::Number { value })
     }
 
-    pub fn new_string(value: String) -> JSValueRef {
-        Self::new(JSValueKind::String { value })
+    pub fn new_string(value: &str) -> JSValueRef {
+        Self::new(JSValueKind::String {
+            value: value.to_string(),
+        })
     }
 
     pub fn new_undefined() -> JSValueRef {
@@ -58,7 +60,7 @@ impl JSValue {
     {
         // Assuming Self::new is a constructor that takes a JSValueKind enum variant.
         Self::new(JSValueKind::Function {
-            value: Rc::new(RefCell::new(value)),
+            value: Rc::new(value),
         })
     }
 
@@ -125,16 +127,16 @@ impl JSValue {
     pub fn cast_to_string(&self) -> String {
         match &self.kind {
             JSValueKind::Number { value } => value.to_string(),
-            JSValueKind::Undefined => String::from("undefined"),
+            JSValueKind::Undefined => "undefined".to_string(),
             JSValueKind::Boolean { value } => {
                 if *value {
-                    String::from("true")
+                    "true".to_string()
                 } else {
-                    String::from("false")
+                    "false".to_string()
                 }
             }
             JSValueKind::String { value } => value.clone(),
-            JSValueKind::Function { .. } => String::from("Function"),
+            JSValueKind::Function { .. } => "Function".to_string(),
         }
     }
 
@@ -148,15 +150,13 @@ impl JSValue {
         }
     }
 
-    pub fn is_equal_to_non_strict(&self, other_ref: &JSValueRef) -> bool {
-        let b = other_ref.borrow();
-
+    pub fn is_equal_to_non_strict(&self, other: &JSValueRef) -> bool {
         match &self.kind {
-            JSValueKind::String { value } => *value == b.cast_to_string(),
-            JSValueKind::Boolean { value } => *value == b.cast_to_bool(),
-            JSValueKind::Number { value } => *value == b.cast_to_number(),
-            JSValueKind::Undefined => b.is_undefined(),
-            JSValueKind::Function { .. } => b.addr() == self.addr(),
+            JSValueKind::String { value } => *value == other.cast_to_string(),
+            JSValueKind::Boolean { value } => *value == other.cast_to_bool(),
+            JSValueKind::Number { value } => *value == other.cast_to_number(),
+            JSValueKind::Undefined => other.is_undefined(),
+            JSValueKind::Function { .. } => other.addr() == self.addr(),
         }
     }
 }
