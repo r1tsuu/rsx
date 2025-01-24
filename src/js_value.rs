@@ -88,7 +88,7 @@ impl JSValue {
     }
 
     pub fn create_debug_string(&self) -> String {
-        let type_val = match self.kind.clone() {
+        let type_val = match &self.kind {
             JSValueKind::Boolean { .. } => "Boolean",
             JSValueKind::Function { .. } => "Function",
             JSValueKind::Number { .. } => "Number",
@@ -107,11 +107,11 @@ impl JSValue {
     }
 
     pub fn cast_to_number(&self) -> f32 {
-        match self.kind.clone() {
-            JSValueKind::Number { value } => value,
+        match &self.kind {
+            JSValueKind::Number { value } => *value,
             JSValueKind::String { value } => value.parse::<f32>().unwrap_or(0.0),
             JSValueKind::Boolean { value } => {
-                if value {
+                if *value {
                     1.0
                 } else {
                     0.0
@@ -123,27 +123,27 @@ impl JSValue {
     }
 
     pub fn cast_to_string(&self) -> String {
-        match self.kind.clone() {
+        match &self.kind {
             JSValueKind::Number { value } => value.to_string(),
             JSValueKind::Undefined => String::from("undefined"),
             JSValueKind::Boolean { value } => {
-                if value {
+                if *value {
                     String::from("true")
                 } else {
                     String::from("false")
                 }
             }
-            JSValueKind::String { value } => value,
+            JSValueKind::String { value } => value.clone(),
             JSValueKind::Function { .. } => String::from("Function"),
         }
     }
 
     pub fn cast_to_bool(&self) -> bool {
-        match self.kind.clone() {
+        match &self.kind {
             JSValueKind::String { value } => !value.is_empty(),
             JSValueKind::Undefined => false,
-            JSValueKind::Number { value } => value != 0.0,
-            JSValueKind::Boolean { value } => value,
+            JSValueKind::Number { value } => *value != 0.0,
+            JSValueKind::Boolean { value } => *value,
             JSValueKind::Function { .. } => true,
         }
     }
@@ -151,10 +151,10 @@ impl JSValue {
     pub fn is_equal_to_non_strict(&self, other_ref: &JSValueRef) -> bool {
         let b = other_ref.borrow();
 
-        match self.kind.clone() {
-            JSValueKind::String { value } => value == b.cast_to_string(),
-            JSValueKind::Boolean { value } => value == b.cast_to_bool(),
-            JSValueKind::Number { value } => value == b.cast_to_number(),
+        match &self.kind {
+            JSValueKind::String { value } => *value == b.cast_to_string(),
+            JSValueKind::Boolean { value } => *value == b.cast_to_bool(),
+            JSValueKind::Number { value } => *value == b.cast_to_number(),
             JSValueKind::Undefined => b.is_undefined(),
             JSValueKind::Function { .. } => b.addr() == self.addr(),
         }
