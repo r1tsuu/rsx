@@ -1,7 +1,465 @@
-use core::fmt;
-use std::{cell::RefCell, rc::Rc};
+use std::{any::Any, cell::OnceCell, rc::Rc};
 
 use crate::execution_engine::ExecutionContextRef;
+
+pub enum JSValueType<'a> {
+    Number(&'a JSNumber),
+    Boolean(&'a JSBoolean),
+    String(&'a JSString),
+    Function(&'a JSFunction),
+    Undefined,
+    Null,
+}
+
+pub type JSValueRef = Rc<dyn JSValue>;
+
+pub trait JSValue {
+    fn as_any(&self) -> &dyn Any;
+    fn cast_to_number(&self) -> JSNumberRef;
+    fn cast_to_string(&self) -> JSStringRef;
+    fn cast_to_boolean(&self) -> JSBooleanRef;
+    fn get_debug_name(&self) -> String;
+    fn is_equal_to_non_strict(&self, other: &JSValueRef) -> bool;
+
+    fn add(&self, _other: &JSValueRef) -> JSValueRef {
+        JSNumber::get_nan()
+    }
+
+    fn divide(&self, _other: &JSValueRef) -> JSValueRef {
+        JSNumber::get_nan()
+    }
+
+    fn substract(&self, _other: &JSValueRef) -> JSValueRef {
+        JSNumber::get_nan()
+    }
+
+    fn multiply(&self, _other: &JSValueRef) -> JSValueRef {
+        JSNumber::get_nan()
+    }
+
+    fn retrieve_type(&self) -> JSValueType {
+        let as_any = self.as_any();
+
+        if let Some(as_number) = as_any.downcast_ref::<JSNumber>() {
+            println!("as number");
+            JSValueType::Number(as_number)
+        } else if let Some(as_boolean) = as_any.downcast_ref::<JSBoolean>() {
+            JSValueType::Boolean(as_boolean)
+        } else if let Some(as_string) = as_any.downcast_ref::<JSString>() {
+            println!("as str");
+            JSValueType::String(as_string)
+        } else if let Some(as_function) = as_any.downcast_ref::<JSFunction>() {
+            JSValueType::Function(as_function)
+        } else if let Some(_) = as_any.downcast_ref::<JSUndefined>() {
+            JSValueType::Undefined
+        } else if let Some(_) = as_any.downcast_ref::<JSNull>() {
+            JSValueType::Null
+        } else {
+            panic!("Unknown type")
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum JSNumberValue {
+    NaN,
+    Valid(f32),
+}
+pub struct JSNumber {
+    pub value: JSNumberValue,
+}
+
+thread_local! {
+  static NAN: OnceCell<JSNumberRef> = OnceCell::new();
+}
+
+pub type JSNumberRef = Rc<JSNumber>;
+
+impl JSNumber {
+    pub fn new(value: f32) -> JSNumberRef {
+        Rc::new(JSNumber {
+            value: JSNumberValue::Valid(value),
+        })
+    }
+
+    pub fn get_nan() -> JSNumberRef {
+        NAN.with(|value| {
+            value
+                .get_or_init(|| {
+                    return Rc::new(JSNumber {
+                        value: JSNumberValue::NaN,
+                    });
+                })
+                .clone()
+        })
+    }
+
+    pub fn compare(&self, other: JSNumberRef) -> bool {
+        if let JSNumberValue::Valid(self_number) = self.value {
+            if let JSNumberValue::Valid(other) = other.value {
+                return self_number == other;
+            }
+        }
+
+        return matches!(self.value, JSNumberValue::NaN)
+            && matches!(other.value, JSNumberValue::NaN);
+    }
+
+    pub fn unwrap_valid_value(&self) -> f32 {
+        if let JSNumberValue::Valid(number) = self.value {
+            number
+        } else {
+            panic!("Tried to unwrap NaN")
+        }
+    }
+}
+
+impl JSValue for JSNumber {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn add(&self, other: &JSValueRef) -> JSValueRef {
+        match other.retrieve_type() {
+            JSValueType::Number(other) => {
+                if let JSNumberValue::Valid(other) = other.value {
+                    if let JSNumberValue::Valid(self_value) = self.value {
+                        return JSNumber::new(self_value + other);
+                    }
+                }
+            }
+            JSValueType::Boolean(other) => {
+                if let JSNumberValue::Valid(self_value) = self.value {
+                    return JSNumber::new(self_value + other.as_f32());
+                }
+            }
+            JSValueType::String(other) => {
+                return JSString::new(&format!("{}{}", self.cast_to_string().value, other.value))
+            }
+            _ => {}
+        }
+        JSNumber::get_nan()
+    }
+
+    fn substract(&self, other: &JSValueRef) -> JSValueRef {
+        if let JSNumberValue::Valid(value) = self.value {
+            if let JSValueType::Number(other) = other.retrieve_type() {
+                if let JSNumberValue::Valid(other) = other.value {
+                    return JSNumber::new(value - other);
+                }
+            } else if let JSValueType::Boolean(other) = other.retrieve_type() {
+                return JSNumber::new(value - other.as_f32());
+            }
+        }
+
+        return JSNumber::get_nan();
+    }
+
+    fn divide(&self, other: &JSValueRef) -> JSValueRef {
+        if let JSNumberValue::Valid(value) = self.value {
+            if let JSValueType::Number(other) = other.retrieve_type() {
+                if let JSNumberValue::Valid(other) = other.value {
+                    return JSNumber::new(value / other);
+                }
+            } else if let JSValueType::Boolean(other) = other.retrieve_type() {
+                return JSNumber::new(value / other.as_f32());
+            }
+        }
+
+        return JSNumber::get_nan();
+    }
+
+    fn multiply(&self, other: &JSValueRef) -> JSValueRef {
+        if let JSNumberValue::Valid(value) = self.value {
+            if let JSValueType::Number(other) = other.retrieve_type() {
+                if let JSNumberValue::Valid(other) = other.value {
+                    return JSNumber::new(value * other);
+                }
+            } else if let JSValueType::Boolean(other) = other.retrieve_type() {
+                return JSNumber::new(value * other.as_f32());
+            }
+        }
+
+        return JSNumber::get_nan();
+    }
+
+    fn is_equal_to_non_strict(&self, other: &JSValueRef) -> bool {
+        self.compare(other.cast_to_number())
+    }
+
+    fn cast_to_number(&self) -> JSNumberRef {
+        match &self.value {
+            JSNumberValue::NaN => JSNumber::get_nan(),
+            JSNumberValue::Valid(val) => JSNumber::new(*val),
+        }
+    }
+
+    fn cast_to_string(&self) -> JSStringRef {
+        match &self.value {
+            JSNumberValue::NaN => JSString::new("NaN"),
+            JSNumberValue::Valid(val) => JSString::new(&val.to_string()),
+        }
+    }
+
+    fn cast_to_boolean(&self) -> JSBooleanRef {
+        match &self.value {
+            JSNumberValue::NaN => JSBoolean::get_false(),
+            JSNumberValue::Valid(val) => {
+                if *val == 0.0 {
+                    JSBoolean::get_false()
+                } else {
+                    JSBoolean::get_true()
+                }
+            }
+        }
+    }
+
+    fn get_debug_name(&self) -> String {
+        "Number".to_string()
+    }
+}
+
+pub struct JSString {
+    pub value: String,
+}
+
+pub type JSStringRef = Rc<JSString>;
+
+impl JSString {
+    pub fn new(value: &str) -> JSStringRef {
+        Rc::new(JSString {
+            value: value.to_string(),
+        })
+    }
+}
+
+impl JSValue for JSString {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn add(&self, other: &JSValueRef) -> JSValueRef {
+        JSString::new(&format!("{}{}", self.value, other.cast_to_string().value))
+    }
+
+    fn is_equal_to_non_strict(&self, other: &JSValueRef) -> bool {
+        self.value == other.cast_to_string().value
+    }
+
+    fn cast_to_number(&self) -> JSNumberRef {
+        self.value
+            .parse::<f32>()
+            .map(|val| JSNumber::new(val))
+            .unwrap_or(JSNumber::get_nan())
+    }
+
+    fn cast_to_string(&self) -> JSStringRef {
+        JSString::new(&self.value)
+    }
+
+    fn cast_to_boolean(&self) -> JSBooleanRef {
+        if self.value.len() == 0 {
+            JSBoolean::get_false()
+        } else {
+            JSBoolean::get_true()
+        }
+    }
+
+    fn get_debug_name(&self) -> String {
+        "String".to_string()
+    }
+}
+
+pub struct JSBoolean {
+    pub value: bool,
+}
+
+pub type JSBooleanRef = Rc<JSBoolean>;
+
+thread_local! {
+  static TRUE: OnceCell<JSBooleanRef> = OnceCell::new();
+  static FALSE: OnceCell<JSBooleanRef> = OnceCell::new();
+}
+
+impl JSBoolean {
+    pub fn get(value: bool) -> JSBooleanRef {
+        if value {
+            JSBoolean::get_true()
+        } else {
+            JSBoolean::get_false()
+        }
+    }
+
+    pub fn get_true() -> JSBooleanRef {
+        TRUE.with(|value| {
+            value
+                .get_or_init(|| {
+                    return Rc::new(JSBoolean { value: true });
+                })
+                .clone()
+        })
+    }
+
+    pub fn get_false() -> JSBooleanRef {
+        FALSE.with(|value| {
+            value
+                .get_or_init(|| {
+                    return Rc::new(JSBoolean { value: false });
+                })
+                .clone()
+        })
+    }
+
+    pub fn as_f32(&self) -> f32 {
+        if self.value {
+            1.0
+        } else {
+            0.0
+        }
+    }
+}
+
+impl JSValue for JSBoolean {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn add(&self, other: &JSValueRef) -> JSValueRef {
+        JSNumber::add(&self.cast_to_number(), other)
+    }
+
+    fn divide(&self, other: &JSValueRef) -> JSValueRef {
+        JSNumber::divide(&self.cast_to_number(), other)
+    }
+
+    fn multiply(&self, other: &JSValueRef) -> JSValueRef {
+        JSNumber::multiply(&self.cast_to_number(), other)
+    }
+
+    fn substract(&self, other: &JSValueRef) -> JSValueRef {
+        JSNumber::substract(&self.cast_to_number(), other)
+    }
+
+    fn is_equal_to_non_strict(&self, other: &JSValueRef) -> bool {
+        self.value == other.cast_to_boolean().value
+    }
+
+    fn cast_to_number(&self) -> JSNumberRef {
+        if self.value {
+            JSNumber::new(1.0)
+        } else {
+            JSNumber::new(0.0)
+        }
+    }
+
+    fn cast_to_string(&self) -> JSStringRef {
+        if self.value {
+            JSString::new("true")
+        } else {
+            JSString::new("false")
+        }
+    }
+
+    fn cast_to_boolean(&self) -> JSBooleanRef {
+        JSBoolean::get(self.value)
+    }
+
+    fn get_debug_name(&self) -> String {
+        "String".to_string()
+    }
+}
+
+pub struct JSUndefined;
+
+pub type JSUndefinedRef = Rc<JSUndefined>;
+
+thread_local! {
+  static UNDEFINED: OnceCell<JSUndefinedRef> = OnceCell::new();
+}
+
+impl JSUndefined {
+    pub fn get() -> JSUndefinedRef {
+        UNDEFINED.with(|value| {
+            value
+                .get_or_init(|| {
+                    return Rc::new(JSUndefined);
+                })
+                .clone()
+        })
+    }
+}
+
+impl JSValue for JSUndefined {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn cast_to_boolean(&self) -> JSBooleanRef {
+        JSBoolean::get_false()
+    }
+
+    fn is_equal_to_non_strict(&self, other: &JSValueRef) -> bool {
+        matches!(other.retrieve_type(), JSValueType::Undefined)
+    }
+
+    fn cast_to_number(&self) -> JSNumberRef {
+        JSNumber::get_nan()
+    }
+
+    fn cast_to_string(&self) -> JSStringRef {
+        JSString::new("undefined")
+    }
+
+    fn get_debug_name(&self) -> String {
+        "Undefined".to_string()
+    }
+}
+
+pub struct JSNull;
+
+pub type JSNullRef = Rc<JSNull>;
+
+thread_local! {
+  static NULL: OnceCell<JSNullRef> = OnceCell::new();
+}
+
+impl JSNull {
+    pub fn get() -> JSNullRef {
+        NULL.with(|value| {
+            value
+                .get_or_init(|| {
+                    return Rc::new(JSNull);
+                })
+                .clone()
+        })
+    }
+}
+
+impl JSValue for JSNull {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn cast_to_boolean(&self) -> JSBooleanRef {
+        JSBoolean::get_false()
+    }
+
+    fn cast_to_number(&self) -> JSNumberRef {
+        JSNumber::get_nan()
+    }
+
+    fn is_equal_to_non_strict(&self, other: &JSValueRef) -> bool {
+        matches!(other.retrieve_type(), JSValueType::Null)
+    }
+
+    fn cast_to_string(&self) -> JSStringRef {
+        JSString::new("null")
+    }
+
+    fn get_debug_name(&self) -> String {
+        "null".to_string()
+    }
+}
 
 pub struct JSFunctionArgs {
     pub ctx: ExecutionContextRef,
@@ -10,168 +468,51 @@ pub struct JSFunctionArgs {
 
 pub type JSFunctionValue = Rc<dyn Fn(JSFunctionArgs)>;
 
-#[derive(Clone)]
-pub enum JSValueKind {
-    Number {
-        value: f32,
-    },
-    String {
-        value: String,
-    },
-    Undefined,
-    Boolean {
-        value: bool,
-    },
-    Function {
-        value: JSFunctionValue,
-        name: Option<String>,
-    },
+pub struct JSFunction {
+    pub value: JSFunctionValue,
+    pub name: Option<String>,
 }
 
-pub struct JSValue {
-    pub kind: JSValueKind,
-}
+pub type JSFunctionRef = Rc<JSFunction>;
 
-pub type JSValueRef = Rc<JSValue>;
-
-impl fmt::Debug for JSValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.create_debug_string())
-    }
-}
-
-impl JSValue {
-    pub fn new(kind: JSValueKind) -> JSValueRef {
-        Rc::new(Self { kind })
-    }
-
-    pub fn new_boolean(value: bool) -> JSValueRef {
-        Self::new(JSValueKind::Boolean { value })
-    }
-
-    pub fn new_number(value: f32) -> JSValueRef {
-        Self::new(JSValueKind::Number { value })
-    }
-
-    pub fn new_string(value: &str) -> JSValueRef {
-        Self::new(JSValueKind::String {
-            value: value.to_string(),
-        })
-    }
-
-    pub fn new_undefined() -> JSValueRef {
-        Self::new(JSValueKind::Undefined)
-    }
-
-    pub fn new_function<F>(value: F, name: Option<&str>) -> JSValueRef
+impl JSFunction {
+    pub fn new<F>(value: F, name: Option<&str>) -> JSValueRef
     where
         F: Fn(JSFunctionArgs) + 'static,
     {
-        // Assuming Self::new is a constructor that takes a JSValueKind enum variant.
-        Self::new(JSValueKind::Function {
+        Rc::new(JSFunction {
             value: Rc::new(value),
-            name: name.map(|x| x.to_string()),
+            name: name.map(str::to_string),
         })
     }
+}
 
-    pub fn is_number(&self) -> bool {
-        matches!(self.kind, JSValueKind::Number { .. })
+impl JSValue for JSFunction {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
-    pub fn is_string(&self) -> bool {
-        matches!(self.kind, JSValueKind::String { .. })
+    fn cast_to_number(&self) -> JSNumberRef {
+        JSNumber::get_nan()
     }
 
-    pub fn is_boolean(&self) -> bool {
-        matches!(self.kind, JSValueKind::Boolean { .. })
-    }
-
-    pub fn is_function(&self) -> bool {
-        matches!(self.kind, JSValueKind::Function { .. })
-    }
-
-    pub fn is_undefined(&self) -> bool {
-        matches!(self.kind, JSValueKind::Undefined)
-    }
-
-    pub fn addr(&self) -> usize {
-        let ptr = self as *const JSValue;
-        ptr.addr()
-    }
-
-    pub fn create_debug_string(&self) -> String {
-        let type_val = match &self.kind {
-            JSValueKind::Boolean { .. } => "Boolean".to_string(),
-            JSValueKind::Function { name, .. } => {
-                format!(
-                    "Function::{}",
-                    name.clone().unwrap_or("Anonymous".to_string())
-                )
-            }
-            JSValueKind::Number { .. } => "Number".to_string(),
-            JSValueKind::String { .. } => "String".to_string(),
-            JSValueKind::Undefined => "Undefined".to_string(),
-        };
-
-        let str = format!(
-            "JSValueKind::{}, Address: {:#?}, Value: {}",
-            type_val,
-            self as *const JSValue,
-            self.cast_to_string()
-        );
-
-        return str;
-    }
-
-    pub fn cast_to_number(&self) -> f32 {
-        match &self.kind {
-            JSValueKind::Number { value } => *value,
-            JSValueKind::String { value } => value.parse::<f32>().unwrap_or(0.0),
-            JSValueKind::Boolean { value } => {
-                if *value {
-                    1.0
-                } else {
-                    0.0
-                }
-            }
-            JSValueKind::Undefined => 0.0,
-            JSValueKind::Function { .. } => 0.0,
+    fn is_equal_to_non_strict(&self, other: &JSValueRef) -> bool {
+        if let JSValueType::Function(other) = other.retrieve_type() {
+            (self as *const JSFunction) == (other as *const JSFunction)
+        } else {
+            false
         }
     }
 
-    pub fn cast_to_string(&self) -> String {
-        match &self.kind {
-            JSValueKind::Number { value } => value.to_string(),
-            JSValueKind::Undefined => "undefined".to_string(),
-            JSValueKind::Boolean { value } => {
-                if *value {
-                    "true".to_string()
-                } else {
-                    "false".to_string()
-                }
-            }
-            JSValueKind::String { value } => value.clone(),
-            JSValueKind::Function { .. } => "Function".to_string(),
-        }
+    fn cast_to_string(&self) -> JSStringRef {
+        JSString::new("Function")
     }
 
-    pub fn cast_to_bool(&self) -> bool {
-        match &self.kind {
-            JSValueKind::String { value } => !value.is_empty(),
-            JSValueKind::Undefined => false,
-            JSValueKind::Number { value } => *value != 0.0,
-            JSValueKind::Boolean { value } => *value,
-            JSValueKind::Function { .. } => true,
-        }
+    fn cast_to_boolean(&self) -> JSBooleanRef {
+        JSBoolean::get_true()
     }
 
-    pub fn is_equal_to_non_strict(&self, other: &JSValueRef) -> bool {
-        match &self.kind {
-            JSValueKind::String { value } => *value == other.cast_to_string(),
-            JSValueKind::Boolean { value } => *value == other.cast_to_bool(),
-            JSValueKind::Number { value } => *value == other.cast_to_number(),
-            JSValueKind::Undefined => other.is_undefined(),
-            JSValueKind::Function { .. } => other.addr() == self.addr(),
-        }
+    fn get_debug_name(&self) -> String {
+        "Number".to_string()
     }
 }

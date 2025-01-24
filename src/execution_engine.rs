@@ -3,7 +3,10 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     error::EngineError,
     execution_scope::{ExecutionScope, ExecutionScopeRef},
-    js_value::{JSFunctionArgs, JSValue, JSValueKind, JSValueRef},
+    js_value::{
+        JSBoolean, JSFunction, JSFunctionArgs, JSNumber, JSString, JSUndefined, JSValue,
+        JSValueRef, JSValueType,
+    },
     parser::{Expression, Parser},
     tokenizer::{Token, TokenKind, Tokenizer},
 };
@@ -36,15 +39,15 @@ impl ExecutionContext {
         let global_scope = ExecutionScope::new(None);
 
         global_scope
-            .define(UNDEFINED_NAME, JSValue::new_undefined())
+            .define(UNDEFINED_NAME, JSUndefined::get())
             .unwrap();
 
         global_scope
-            .define(TRUE_NAME, JSValue::new_boolean(true))
+            .define(TRUE_NAME, JSBoolean::get_true())
             .unwrap();
 
         global_scope
-            .define(FALSE_NAME, JSValue::new_boolean(false))
+            .define(FALSE_NAME, JSBoolean::get_false())
             .unwrap();
 
         self.scopes.borrow_mut().push(global_scope);
@@ -234,7 +237,7 @@ impl ExpressionEvaluator {
             }
         };
 
-        let func = JSValue::new_function(func, Some(name));
+        let func = JSFunction::new(func, Some(name));
 
         self.ctx.get_current_scope().define(name, func)
     }
@@ -246,8 +249,8 @@ impl ExpressionEvaluator {
     ) -> Result<JSValueRef, EngineError> {
         let try_function = self.evaluate_expression(name)?;
 
-        let function = match &try_function.kind {
-            JSValueKind::Function { value, .. } => value,
+        let function = match try_function.retrieve_type() {
+            JSValueType::Function(value) => value,
             _ => {
                 return Err(EngineError::execution_engine_error(format!(
                     "Tried to call not a function",
@@ -280,7 +283,7 @@ impl ExpressionEvaluator {
 
         self.ctx.call_stack.borrow_mut().push(call);
         self.ctx.enter_scope();
-        function(context);
+        (function.value)(context);
         self.ctx.exit_scope();
 
         let call = self.ctx.call_stack.borrow_mut().pop().unwrap();
@@ -293,11 +296,11 @@ impl ExpressionEvaluator {
     }
 
     fn evaluate_number_literal(&self, value: f32) -> Result<JSValueRef, EngineError> {
-        Ok(JSValue::new_number(value))
+        Ok(JSNumber::new(value))
     }
 
     fn evaluate_string_literal(&self, value: &str) -> Result<JSValueRef, EngineError> {
-        Ok(JSValue::new_string(value))
+        Ok(JSString::new(value))
     }
 
     fn evaluate_parenthesized(&self, expression: &Expression) -> Result<JSValueRef, EngineError> {
@@ -352,24 +355,16 @@ impl ExpressionEvaluator {
         }
 
         let left_result = self.evaluate_expression(left)?;
-        let right_result = self.evaluate_expression(right)?;
+        let right_result = &self.evaluate_expression(right)?;
 
         match op.kind {
             TokenKind::EqualsEquals => Ok(self
                 .ctx
                 .get_boolean(left_result.is_equal_to_non_strict(&right_result))),
-            TokenKind::Plus => Ok(JSValue::new_number(
-                left_result.cast_to_number() + right_result.cast_to_number(),
-            )),
-            TokenKind::Minus => Ok(JSValue::new_number(
-                left_result.cast_to_number() - right_result.cast_to_number(),
-            )),
-            TokenKind::Multiply => Ok(JSValue::new_number(
-                left_result.cast_to_number() * right_result.cast_to_number(),
-            )),
-            TokenKind::Divide => Ok(JSValue::new_number(
-                left_result.cast_to_number() / right_result.cast_to_number(),
-            )),
+            TokenKind::Plus => Ok(left_result.add(right_result)),
+            TokenKind::Minus => Ok(left_result.substract(right_result)),
+            TokenKind::Multiply => Ok(left_result.multiply(right_result)),
+            TokenKind::Divide => Ok(left_result.divide(right_result)),
             _ => Err(EngineError::execution_engine_error(format!(
                 "Failed to execute binary expression with operator: {:#?}",
                 op

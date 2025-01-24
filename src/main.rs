@@ -7,10 +7,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use execution_engine::ExpressionEvaluator;
-use js_value::JSValue;
-use parser::Parser;
-use tokenizer::Tokenizer;
 mod error;
 mod execution_engine;
 mod execution_scope;
@@ -19,29 +15,67 @@ mod parser;
 mod tests;
 mod tokenizer;
 
-fn main() -> ExitCode {
-    let source = String::from(
-        "
+use std::cell::{Cell, OnceCell};
 
-            ",
-    ); // 3
-    let mut tokens = vec![];
+trait MyTrait {
+    fn print(&self);
+}
 
-    for token in Tokenizer::from_source(source.to_string()).to_iter() {
-        match token {
-            Ok(token) => tokens.push(token),
-            Err(err) => {
-                err.print();
-                return ExitCode::FAILURE;
-            }
-        };
+struct MyStruct {
+    value: i32,
+}
+
+impl MyTrait for MyStruct {
+    fn print(&self) {
+        println!("Value: {}", self.value);
     }
+}
 
-    let program = Parser::new(tokens).parse_program();
+thread_local!(static TRUE: OnceCell<Rc<f32>> = OnceCell::new());
 
-    println!("{program:#?}");
+fn get_thread_local_true() -> Rc<f32> {
+    TRUE.with(|value| {
+        value
+            .get_or_init(|| {
+                println!("INIT");
+                return Rc::new(0.0);
+            })
+            .clone()
+    })
+}
+
+fn main() -> ExitCode {
+    let x = get_thread_local_true();
+    let b = get_thread_local_true();
+
+    println!("{:#?}", x == b);
 
     ExitCode::SUCCESS
+    // let my_struct = MyStruct { value: 42 };
+    // let my_trait = &my_struct as &dyn MyTrait;
+
+    // let source = String::from(
+    //     "
+
+    //         ",
+    // ); // 3
+    // let mut tokens = vec![];
+
+    // for token in Tokenizer::from_source(source.to_string()).to_iter() {
+    //     match token {
+    //         Ok(token) => tokens.push(token),
+    //         Err(err) => {
+    //             err.print();
+    //             return ExitCode::FAILURE;
+    //         }
+    //     };
+    // }
+
+    // let program = Parser::new(tokens).parse_program();
+
+    // println!("{program:#?}");
+
+    // ExitCode::SUCCESS
 
     //     let now = SystemTime::now()
     //         .duration_since(UNIX_EPOCH)
