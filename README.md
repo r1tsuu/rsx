@@ -8,12 +8,12 @@ Very simple JS Engine with basic expressions support:
 let x = 10;
 let b = 30 + 1;
 b = b + 5;
-x + b // ExecutionEngine::execute_source evaluates to JavascriptObject { Number { value: 46 }}
+x + b // evaluates to JSNumber { value: 46 }
 ```
 3. Strings
 ```js
 let x = "Hello World"
-x // ExecutionEngine::execute_source evaluates to JavascriptObject { String { value: "Hello World" }}
+x //  evaluates to JSString  { value: "Hello World" }
 ```
 4. Block scoping
 ```js
@@ -31,4 +31,7 @@ function x(a, b) {
 x(2, 3); // evaluates to 5
 ```
 
-More  (objects) soon!
+6. Objects
+```js
+let obj = {a: 3, b: "Hello World"}; // evaluates to JSObject { value: HashMap /w "a" - 3 as JSNumber and "b" - "Hello World" as JSString }
+```
