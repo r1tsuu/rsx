@@ -1,11 +1,12 @@
 #[cfg(test)]
 use crate::execution_engine::ExpressionEvaluator;
+use crate::js_value::{JSNumber, JSValue};
 
 #[test]
 fn test_basic_binary() {
     let result = ExpressionEvaluator::evaluate_source("100+200*3+5+(3+5*3+6)").unwrap();
 
-    assert_eq!(result.cast_to_number().unwrap_valid_value(), 729.0);
+    assert_eq!(result.cast_to_number().value, 729.0);
 }
 
 #[test]
@@ -26,7 +27,7 @@ fn test_binary_eq_eq_2() {
 fn test_basic_variables() {
     let result = ExpressionEvaluator::evaluate_source("let x = 1; let b = 6; x + b;").unwrap();
 
-    assert_eq!(result.cast_to_number().unwrap_valid_value(), 7.0);
+    assert_eq!(result.cast_to_number().value, 7.0);
 }
 
 #[test]
@@ -34,7 +35,14 @@ fn test_basic_variables_changing() {
     let result =
         ExpressionEvaluator::evaluate_source("let x = 1; let b = 6; x = 10 + b; x").unwrap();
 
-    assert_eq!(result.cast_to_number().unwrap_valid_value(), 16.0);
+    let x = JSNumber::cast_rc(&result);
+
+    match x {
+        Some(x) => println!("{}", x.get_debug_string()),
+        None => println!("Nope"),
+    };
+
+    assert_eq!(result.cast_to_number().value, 16.0);
 }
 
 #[test]
@@ -50,7 +58,7 @@ fn test_basic_functions() {
         ExpressionEvaluator::evaluate_source("function x(a, b) { return a + b; } x(2, 3);")
             .unwrap();
 
-    assert_eq!(result.cast_to_number().unwrap_valid_value(), 5.0);
+    assert_eq!(result.cast_to_number().value, 5.0);
 }
 
 #[test]

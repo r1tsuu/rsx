@@ -38,15 +38,15 @@ impl ExecutionContext {
         let global_scope = ExecutionScope::new(None);
 
         global_scope
-            .define(UNDEFINED_NAME, JSUndefined::get())
+            .define(JSUndefined::get_name(), JSUndefined::get())
             .unwrap();
 
         global_scope
-            .define(TRUE_NAME, JSBoolean::get_true())
+            .define(JSBoolean::get_true_name(), JSBoolean::get_true())
             .unwrap();
 
         global_scope
-            .define(FALSE_NAME, JSBoolean::get_false())
+            .define(JSBoolean::get_false_name(), JSBoolean::get_false())
             .unwrap();
 
         self.scopes.borrow_mut().push(global_scope);
@@ -66,16 +66,6 @@ impl ExecutionContext {
 
     fn get_global_scope(&self) -> ExecutionScopeRef {
         self.scopes.borrow().get(0).unwrap().clone()
-    }
-
-    fn get_undefined(&self) -> JSValueRef {
-        self.get_global_scope().get(UNDEFINED_NAME).unwrap()
-    }
-
-    fn get_boolean(&self, value: bool) -> JSValueRef {
-        self.get_global_scope()
-            .get((if value { TRUE_NAME } else { FALSE_NAME }))
-            .unwrap()
     }
 
     fn get_current_scope(&self) -> ExecutionScopeRef {
@@ -103,10 +93,6 @@ impl ExecutionContext {
 }
 
 pub type ExecutionContextRef = Rc<ExecutionContext>;
-
-const UNDEFINED_NAME: &str = "undefined";
-const TRUE_NAME: &str = "true";
-const FALSE_NAME: &str = "false";
 
 impl ExpressionEvaluator {
     fn new() -> Self {
@@ -147,7 +133,7 @@ impl ExpressionEvaluator {
             }
         }
 
-        return Ok(self.ctx.get_undefined());
+        return Ok(JSUndefined::get());
     }
 
     fn evaluate_let_variable_declaration(
@@ -162,7 +148,7 @@ impl ExpressionEvaluator {
     fn evaluate_function_return(&self, expression: &Expression) -> Result<JSValueRef, EngineError> {
         let res = self.evaluate_expression(expression)?;
         self.ctx.set_current_function_return(res);
-        Ok(self.ctx.get_undefined())
+        Ok(JSUndefined::get())
     }
 
     fn evaluate_block(&self, expressions: &Vec<Expression>) -> Result<JSValueRef, EngineError> {
@@ -193,7 +179,7 @@ impl ExpressionEvaluator {
 
         self.ctx.exit_scope();
 
-        Ok(self.ctx.get_undefined())
+        Ok(JSUndefined::get())
     }
 
     fn evaluate_function_declaration(
@@ -268,7 +254,7 @@ impl ExpressionEvaluator {
 
         let call = {
             FunctionCallStackContext {
-                return_value: self.ctx.get_undefined(),
+                return_value: JSUndefined::get(),
                 function_ptr: try_function.clone(),
                 error: None,
                 should_return: false,
@@ -289,7 +275,7 @@ impl ExpressionEvaluator {
         }
     }
 
-    fn evaluate_number_literal(&self, value: f32) -> Result<JSValueRef, EngineError> {
+    fn evaluate_number_literal(&self, value: f64) -> Result<JSValueRef, EngineError> {
         Ok(JSNumber::new(value))
     }
 
@@ -352,9 +338,9 @@ impl ExpressionEvaluator {
         let right_result = self.evaluate_expression(right)?;
 
         match op.kind {
-            TokenKind::EqualsEquals => Ok(self
-                .ctx
-                .get_boolean(left_result.is_equal_to_non_strict(right_result.as_ref()))),
+            TokenKind::EqualsEquals => Ok(JSBoolean::get(
+                left_result.is_equal_to_non_strict(right_result.as_ref()),
+            )),
             TokenKind::Plus => Ok(left_result.add(right_result.as_ref())),
             TokenKind::Minus => Ok(left_result.substract(right_result.as_ref())),
             TokenKind::Multiply => Ok(left_result.multiply(right_result.as_ref())),

@@ -8,7 +8,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum Expression {
     NumberLiteral {
-        value: f32,
+        value: f64,
     },
     StringLiteral {
         value: String,
@@ -81,7 +81,6 @@ impl Expression {
     }
 }
 
-#[derive(Clone)]
 pub struct Parser {
     tokens: Vec<Token>,
     current_token: usize,
@@ -289,14 +288,14 @@ impl Parser {
             Some(next_token) => {
                 if !next_token.is_binary_operator() {
                     return Ok(Expression::NumberLiteral {
-                        value: token.text.parse::<f32>().unwrap(),
+                        value: token.text.parse::<f64>().unwrap(),
                     });
                 }
 
                 self.parse_binary_op_expression(None)
             }
             None => Ok(Expression::NumberLiteral {
-                value: token.text.parse::<f32>().unwrap(),
+                value: token.text.parse::<f64>().unwrap(),
             }),
         }
     }
@@ -778,7 +777,7 @@ impl Parser {
                         name: left_token.clone().text,
                     },
                     TokenKind::Number => Expression::NumberLiteral {
-                        value: left_token.text.parse::<f32>().unwrap(),
+                        value: left_token.text.parse::<f64>().unwrap(),
                     },
                     _ => {
                         return Err(EngineError::parser_error(format!(
