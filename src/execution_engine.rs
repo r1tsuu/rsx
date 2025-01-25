@@ -4,7 +4,8 @@ use crate::{
     error::EngineError,
     execution_scope::{ExecutionScope, ExecutionScopeRef},
     js_value::{
-        JSBoolean, JSFunction, JSFunctionArgs, JSNumber, JSString, JSUndefined, JSValueRef,
+        JSBoolean, JSFunction, JSFunctionArgs, JSNumber, JSObject, JSString, JSUndefined,
+        JSValueRef,
     },
     parser::{Expression, Parser},
     tokenizer::{Token, TokenKind, Tokenizer},
@@ -47,6 +48,10 @@ impl ExecutionContext {
 
         global_scope
             .define(JSBoolean::get_false_name(), JSBoolean::get_false())
+            .unwrap();
+
+        global_scope
+            .define(JSNumber::get_nan_name(), JSNumber::get_nan())
             .unwrap();
 
         self.scopes.borrow_mut().push(global_scope);
@@ -121,7 +126,7 @@ impl ExpressionEvaluator {
         }
     }
 
-    fn evaluate_program(&self, expressions: &Vec<Expression>) -> Result<JSValueRef, EngineError> {
+    fn evaluate_program(&self, expressions: &[Expression]) -> Result<JSValueRef, EngineError> {
         for (index, expr) in expressions.iter().enumerate() {
             match self.evaluate_expression(expr) {
                 Err(err) => return Err(err),
@@ -151,7 +156,7 @@ impl ExpressionEvaluator {
         Ok(JSUndefined::get())
     }
 
-    fn evaluate_block(&self, expressions: &Vec<Expression>) -> Result<JSValueRef, EngineError> {
+    fn evaluate_block(&self, expressions: &[Expression]) -> Result<JSValueRef, EngineError> {
         self.ctx.clone().enter_scope();
 
         for (index, expr) in expressions.iter().enumerate() {
@@ -185,10 +190,10 @@ impl ExpressionEvaluator {
     fn evaluate_function_declaration(
         &self,
         name: &str,
-        parameters: &Vec<Expression>,
+        parameters: &[Expression],
         body: &Expression,
     ) -> Result<JSValueRef, EngineError> {
-        let parameters = parameters.clone();
+        let parameters = parameters.to_vec().clone();
         let body = body.clone();
 
         let func = move |func_ctx: JSFunctionArgs| {
@@ -230,7 +235,7 @@ impl ExpressionEvaluator {
     fn evaluate_function_call(
         &self,
         name: &Expression,
-        arguments_expressions: &Vec<Expression>,
+        arguments_expressions: &[Expression],
     ) -> Result<JSValueRef, EngineError> {
         let try_function = self.evaluate_expression(name)?;
 
@@ -352,6 +357,28 @@ impl ExpressionEvaluator {
         }
     }
 
+    fn evaluate_object_literal_expression(
+        &self,
+        properties: &[Expression],
+    ) -> Result<JSValueRef, EngineError> {
+        let object = JSObject::new();
+
+        for prop in properties {
+            if let Expression::PropertyAssignment { name, initializer } = prop {
+                let name = self.evaluate_expression(name)?;
+                let initializer = self.evaluate_expression(initializer)?;
+
+                object.set_key(&name.cast_to_string().value, &initializer);
+            } else {
+                return Err(EngineError::execution_engine_error(format!(
+                    "Tried to evaluate object literal expression with a property: {prop:#?}"
+                )));
+            }
+        }
+
+        Ok(object)
+    }
+
     fn evaluate_expression(&self, expression: &Expression) -> Result<JSValueRef, EngineError> {
         let result = match expression {
             Expression::Program { expressions } => self.evaluate_program(expressions),
@@ -377,6 +404,9 @@ impl ExpressionEvaluator {
             Expression::FunctionParameter { .. } => Err(EngineError::execution_engine_error(
                 "Function parameter cannot be evaluated by its own!",
             )),
+            Expression::ObjectLiteralExpression { properties } => {
+                self.evaluate_object_literal_expression(properties)
+            }
             _ => unimplemented!(),
         };
 

@@ -12,12 +12,16 @@ mod tests;
 mod tokenizer;
 
 use execution_engine::ExpressionEvaluator;
+use parser::Parser;
 
 fn main() -> ExitCode {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_micros();
+
+    // println!("{:#?}", Parser::parse_source("let x = {a: 2, c: 100}"));
+    // return ExitCode::SUCCESS;
 
     let source = String::from(
         "

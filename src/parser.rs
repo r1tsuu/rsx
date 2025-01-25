@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     error::EngineError,
-    tokenizer::{Token, TokenKind},
+    tokenizer::{Token, TokenKind, Tokenizer},
 };
 
 #[derive(Debug, Clone)]
@@ -100,6 +100,19 @@ impl Parser {
         let expressions = self.parse_expressions()?;
 
         Ok(Expression::Program { expressions })
+    }
+
+    pub fn parse_source(source: &str) -> Result<Expression, EngineError> {
+        let mut tokens = vec![];
+
+        for token in Tokenizer::from_source(source.to_string()).to_iter() {
+            match token {
+                Ok(token) => tokens.push(token),
+                Err(err) => return Err(err),
+            };
+        }
+
+        Parser::new(tokens).parse_program()
     }
 
     fn parse_expressions(&mut self) -> Result<Vec<Expression>, EngineError> {
@@ -480,7 +493,7 @@ impl Parser {
             let mut properties = vec![];
 
             while parser.current_token < parser.tokens.len() {
-                let name_identifier = parser.parse_identifier()?;
+                let name_identifier = parser.parse_string()?;
                 parser.current_token += 1;
 
                 let expect_colon = parser

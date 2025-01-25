@@ -1,7 +1,13 @@
 use as_any::{AsAny, Downcast};
 
 use core::f64;
-use std::{any::Any, cell::OnceCell, fmt, rc::Rc};
+use std::{
+    any::Any,
+    cell::{OnceCell, RefCell},
+    collections::HashMap,
+    fmt,
+    rc::Rc,
+};
 
 use crate::execution_engine::ExecutionContextRef;
 
@@ -9,7 +15,7 @@ pub type JSValueRef = Rc<dyn JSValue>;
 
 pub trait JSValue: AsAny {
     fn as_any_rc(self: Rc<Self>) -> Rc<dyn Any>;
-
+    fn get_typeof(&self) -> JSStringRef;
     fn cast_to_number(&self) -> JSNumberRef;
     fn cast_to_string(&self) -> JSStringRef;
     fn cast_to_boolean(&self) -> JSBooleanRef;
@@ -87,6 +93,10 @@ impl JSNumber {
 impl JSValue for JSNumber {
     fn as_any_rc(self: Rc<Self>) -> Rc<dyn Any> {
         self
+    }
+
+    fn get_typeof(&self) -> JSStringRef {
+        JSString::new("number")
     }
 
     fn add(&self, other: &dyn JSValue) -> JSValueRef {
@@ -184,6 +194,10 @@ impl JSString {
 impl JSValue for JSString {
     fn as_any_rc(self: Rc<Self>) -> Rc<dyn Any> {
         self
+    }
+
+    fn get_typeof(&self) -> JSStringRef {
+        JSString::new("string")
     }
 
     fn add(&self, other: &dyn JSValue) -> JSValueRef {
@@ -287,6 +301,10 @@ impl JSValue for JSBoolean {
         self
     }
 
+    fn get_typeof(&self) -> JSStringRef {
+        JSString::new("boolean")
+    }
+
     fn add(&self, other: &dyn JSValue) -> JSValueRef {
         JSNumber::add(&self.cast_to_number(), other)
     }
@@ -367,6 +385,10 @@ impl JSValue for JSUndefined {
         self
     }
 
+    fn get_typeof(&self) -> JSStringRef {
+        JSString::new("undefined")
+    }
+
     fn cast_to_boolean(&self) -> JSBooleanRef {
         JSBoolean::get_false()
     }
@@ -421,6 +443,10 @@ impl JSNull {
 impl JSValue for JSNull {
     fn as_any_rc(self: Rc<Self>) -> Rc<dyn Any> {
         self
+    }
+
+    fn get_typeof(&self) -> JSStringRef {
+        JSString::new("object")
     }
 
     fn cast_to_boolean(&self) -> JSBooleanRef {
@@ -479,6 +505,10 @@ impl JSValue for JSFunction {
         self
     }
 
+    fn get_typeof(&self) -> JSStringRef {
+        JSString::new("function")
+    }
+
     fn cast_to_number(&self) -> JSNumberRef {
         JSNumber::get_nan()
     }
@@ -509,5 +539,67 @@ impl JSValue for JSFunction {
         }
 
         str
+    }
+}
+
+pub struct JSObject {
+    pub value: RefCell<HashMap<String, JSValueRef>>,
+}
+
+pub type JSObjectRef = Rc<JSObject>;
+
+impl JSObject {
+    pub fn new() -> JSObjectRef {
+        Rc::new(JSObject {
+            value: RefCell::new(HashMap::new()),
+        })
+    }
+
+    pub fn cast(value: &dyn JSValue) -> Option<&JSObject> {
+        value.downcast_ref::<JSObject>()
+    }
+
+    pub fn set_key(&self, key: &str, value: &JSValueRef) {
+        self.value
+            .borrow_mut()
+            .insert(key.to_string(), value.clone());
+    }
+
+    pub fn get_key(&self, key: &str) -> Option<JSValueRef> {
+        self.value.borrow().get(key).cloned()
+    }
+}
+
+impl JSValue for JSObject {
+    fn as_any_rc(self: Rc<Self>) -> Rc<dyn Any> {
+        self
+    }
+
+    fn get_typeof(&self) -> JSStringRef {
+        JSString::new("object")
+    }
+
+    fn cast_to_boolean(&self) -> JSBooleanRef {
+        JSBoolean::get_true()
+    }
+
+    fn cast_to_string(&self) -> JSStringRef {
+        JSString::new("[object Object]")
+    }
+
+    fn cast_to_number(&self) -> JSNumberRef {
+        JSNumber::get_nan()
+    }
+
+    fn is_equal_to_non_strict(&self, other: &dyn JSValue) -> bool {
+        if let Some(other) = JSObject::cast(other) {
+            (self as *const JSObject) == (other as *const JSObject)
+        } else {
+            false
+        }
+    }
+
+    fn get_debug_string(&self) -> String {
+        "[object Object]".to_string()
     }
 }
