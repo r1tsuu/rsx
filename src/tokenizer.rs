@@ -181,7 +181,14 @@ impl Tokenizer {
 
                 let start = self.cursor.position;
 
-                if char.is_digit(10) {
+                if char.is_digit(10)
+                    || (char == '-'
+                        && self
+                            .chars
+                            .get(self.cursor.position)
+                            .map(|c| c.is_digit(10))
+                            .unwrap_or(false))
+                {
                     let mut digit = char.to_string();
 
                     while let Some(next_char) =

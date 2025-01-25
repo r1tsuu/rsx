@@ -508,6 +508,13 @@ impl JSFunction {
         })
     }
 
+    pub fn new_named<F>(value: F, name: &str) -> JSValueRef
+    where
+        F: Fn(JSFunctionContext) + 'static,
+    {
+        JSFunction::new(value, Some(name))
+    }
+
     pub fn cast(value: &dyn JSValue) -> Option<&JSFunction> {
         value.downcast_ref::<JSFunction>()
     }
@@ -572,10 +579,17 @@ impl JSObject {
         value.downcast_ref::<JSObject>()
     }
 
-    pub fn set_key(&self, key: &str, value: &JSValueRef) {
+    pub fn set_key(&self, key: &str, value: JSValueRef) {
         self.value
             .borrow_mut()
             .insert(key.to_string(), value.clone());
+    }
+
+    pub fn set_key_method<F>(&self, key: &str, function: F)
+    where
+        F: Fn(JSFunctionContext) + 'static,
+    {
+        self.set_key(key, JSFunction::new_named(function, key));
     }
 
     pub fn get_key(&self, key: &str) -> JSValueRef {

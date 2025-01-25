@@ -51,7 +51,13 @@ fn core() {
 }
 
 #[test]
-fn math() {
+fn core_addons() {
     let result = ExpressionEvaluator::evaluate_source("Math.sqrt(4)").unwrap();
     assert_eq!(result.cast_to_number().value, 2.0);
+
+    let result = ExpressionEvaluator::evaluate_source("Math.pow(2, 3)").unwrap();
+    assert_eq!(result.cast_to_number().value, 8.0);
+
+    let result = ExpressionEvaluator::evaluate_source("Math.abs(-10)").unwrap();
+    assert_eq!(result.cast_to_number().value, 10.0);
 }

@@ -365,7 +365,7 @@ impl ExpressionEvaluator {
                 let name = self.evaluate_expression(name)?;
                 let initializer = self.evaluate_expression(initializer)?;
 
-                object.set_key(&name.cast_to_string().value, &initializer);
+                object.set_key(&name.cast_to_string().value, initializer);
             } else {
                 return Err(EngineError::execution_engine_error(format!(
                     "Tried to evaluate object literal expression with a property: {prop:#?}"
