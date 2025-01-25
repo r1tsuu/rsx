@@ -1,10 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
+    addon_math::MathAddon,
     error::EngineError,
     execution_scope::{ExecutionScope, ExecutionScopeRef},
     js_value::{
-        JSBoolean, JSFunction, JSFunctionArgs, JSNumber, JSObject, JSString, JSUndefined,
+        JSBoolean, JSFunction, JSFunctionContext, JSNumber, JSObject, JSString, JSUndefined,
         JSValueRef,
     },
     parser::{Expression, Parser},
@@ -23,12 +24,16 @@ pub struct ExpressionEvaluator {
 }
 
 pub struct ExecutionContext {
-    scopes: RefCell<Vec<ExecutionScopeRef>>,
-    call_stack: RefCell<Vec<FunctionCallStackContext>>,
+    pub scopes: RefCell<Vec<ExecutionScopeRef>>,
+    pub call_stack: RefCell<Vec<FunctionCallStackContext>>,
+}
+
+pub trait EngineAddon {
+    fn init(&self, ctx: &ExecutionContext) -> Result<(), EngineError>;
 }
 
 impl ExecutionContext {
-    fn new() -> Rc<ExecutionContext> {
+    fn new() -> Result<Rc<ExecutionContext>, EngineError> {
         let ctx = Rc::new(ExecutionContext {
             call_stack: RefCell::new(vec![]),
             scopes: RefCell::new(vec![]),
@@ -37,27 +42,19 @@ impl ExecutionContext {
         let global_scope = ExecutionScope::new(None);
 
         // Define JS singletons:
-        global_scope
-            .define(JSUndefined::get_name(), JSUndefined::get())
-            .unwrap();
-
-        global_scope
-            .define(JSBoolean::get_true_name(), JSBoolean::get_true())
-            .unwrap();
-
-        global_scope
-            .define(JSBoolean::get_false_name(), JSBoolean::get_false())
-            .unwrap();
-
-        global_scope
-            .define(JSNumber::get_nan_name(), JSNumber::get_nan())
-            .unwrap();
+        global_scope.define(JSUndefined::get_name(), JSUndefined::get())?;
+        global_scope.define(JSBoolean::get_true_name(), JSBoolean::get_true())?;
+        global_scope.define(JSBoolean::get_false_name(), JSBoolean::get_false())?;
+        global_scope.define(JSNumber::get_nan_name(), JSNumber::get_nan())?;
 
         ctx.scopes.borrow_mut().push(global_scope);
-        ctx
+
+        ctx.load_addon(MathAddon::new())?;
+
+        Ok(ctx)
     }
 
-    fn enter_scope(&self) -> ExecutionScopeRef {
+    pub fn enter_scope(&self) -> ExecutionScopeRef {
         let scope = ExecutionScope::new(Some(self.get_current_scope()));
 
         self.scopes.borrow_mut().push(scope.clone());
@@ -65,24 +62,24 @@ impl ExecutionContext {
         scope
     }
 
-    fn exit_scope(&self) {
+    pub fn exit_scope(&self) {
         self.scopes.borrow_mut().pop();
     }
 
-    fn get_global_scope(&self) -> ExecutionScopeRef {
+    pub fn get_global_scope(&self) -> ExecutionScopeRef {
         self.scopes.borrow().get(0).unwrap().clone()
     }
 
-    fn get_current_scope(&self) -> ExecutionScopeRef {
+    pub fn get_current_scope(&self) -> ExecutionScopeRef {
         self.scopes.borrow().last().unwrap().clone()
     }
 
-    fn set_current_function_error(&self, err: EngineError) -> EngineError {
+    pub fn set_current_function_error(&self, err: EngineError) -> EngineError {
         self.call_stack.borrow_mut().last_mut().unwrap().error = Some(err.clone());
         err
     }
 
-    fn set_current_function_return(&self, value: JSValueRef) {
+    pub fn set_current_function_return(&self, value: JSValueRef) {
         self.call_stack
             .borrow_mut()
             .last_mut()
@@ -95,17 +92,16 @@ impl ExecutionContext {
             .unwrap()
             .return_value = value;
     }
+
+    pub fn load_addon(&self, extension: Rc<dyn EngineAddon>) -> Result<&Self, EngineError> {
+        extension.init(self)?;
+        Ok(self)
+    }
 }
 
 pub type ExecutionContextRef = Rc<ExecutionContext>;
 
 impl ExpressionEvaluator {
-    fn new() -> Self {
-        ExpressionEvaluator {
-            ctx: ExecutionContext::new(),
-        }
-    }
-
     pub fn evaluate_source<T: ToString>(source: T) -> Result<JSValueRef, EngineError> {
         let mut tokens = vec![];
 
@@ -117,7 +113,12 @@ impl ExpressionEvaluator {
         }
 
         match Parser::new(tokens).parse_program() {
-            Ok(program) => Self::new().evaluate_expression(&program),
+            Ok(program) => {
+                let evaluator = ExpressionEvaluator {
+                    ctx: ExecutionContext::new()?,
+                };
+                evaluator.evaluate_expression(&program)
+            }
             Err(err) => return Err(err),
         }
     }
@@ -192,7 +193,7 @@ impl ExpressionEvaluator {
         let parameters = parameters.to_vec().clone();
         let body = body.clone();
 
-        let func = move |func_ctx: JSFunctionArgs| {
+        let func = move |func_ctx: JSFunctionContext| {
             for (arg_i, arg) in func_ctx.js_args.iter().enumerate() {
                 if let Some(parameter) = parameters.get(arg_i) {
                     match func_ctx
@@ -247,7 +248,7 @@ impl ExpressionEvaluator {
         }
 
         let context = {
-            JSFunctionArgs {
+            JSFunctionContext {
                 ctx: self.ctx.clone(),
                 js_args: arguments,
             }

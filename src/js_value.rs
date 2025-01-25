@@ -470,12 +470,25 @@ impl JSValue for JSNull {
     }
 }
 
-pub struct JSFunctionArgs {
+pub struct JSFunctionContext {
     pub ctx: ExecutionContextRef,
     pub js_args: Vec<JSValueRef>,
 }
 
-pub type JSFunctionValue = Rc<dyn Fn(JSFunctionArgs)>;
+impl JSFunctionContext {
+    pub fn arg(&self, index: usize) -> JSValueRef {
+        self.js_args
+            .get(index)
+            .cloned()
+            .unwrap_or(JSUndefined::get())
+    }
+
+    pub fn set_return(&self, value: JSValueRef) {
+        self.ctx.set_current_function_return(value.clone());
+    }
+}
+
+pub type JSFunctionValue = Rc<dyn Fn(JSFunctionContext)>;
 
 pub struct JSFunction {
     pub value: JSFunctionValue,
@@ -487,7 +500,7 @@ pub type JSFunctionRef = Rc<JSFunction>;
 impl JSFunction {
     pub fn new<F>(value: F, name: Option<&str>) -> JSValueRef
     where
-        F: Fn(JSFunctionArgs) + 'static,
+        F: Fn(JSFunctionContext) + 'static,
     {
         Rc::new(JSFunction {
             value: Rc::new(value),

@@ -3,6 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+mod addon_math;
 mod error;
 mod execution_engine;
 mod execution_scope;
@@ -12,7 +13,6 @@ mod tests;
 mod tokenizer;
 
 use execution_engine::ExpressionEvaluator;
-use parser::Parser;
 
 fn main() -> ExitCode {
     // println!("{:#?}", Parser::parse_source("a.c"));

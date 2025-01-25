@@ -4,7 +4,7 @@ use crate::execution_engine::ExpressionEvaluator;
 use crate::js_value::JSObject;
 
 #[test]
-fn tests() {
+fn core() {
     let result = ExpressionEvaluator::evaluate_source("100+200*3+5+(3+5*3+6)").unwrap();
     assert_eq!(result.cast_to_number().value, 729.0);
 
@@ -48,4 +48,10 @@ fn tests() {
     let result =
         ExpressionEvaluator::evaluate_source("let x = {a: 10, b: \"Hello World\"}; x.b").unwrap();
     assert_eq!(result.cast_to_string().value, "Hello World");
+}
+
+#[test]
+fn math() {
+    let result = ExpressionEvaluator::evaluate_source("Math.sqrt(4)").unwrap();
+    assert_eq!(result.cast_to_number().value, 2.0);
 }
