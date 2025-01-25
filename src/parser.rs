@@ -379,8 +379,8 @@ impl Parser {
                         )));
                     }
 
-                    assigments.push(Expression::Identifier {
-                        name: token.text.clone(),
+                    assigments.push(Expression::StringLiteral {
+                        value: token.text.clone(),
                     });
 
                     next_token = self.tokens.get(self.current_token + 1);

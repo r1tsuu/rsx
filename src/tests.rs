@@ -42,9 +42,10 @@ fn tests() {
     let result =
         ExpressionEvaluator::evaluate_source("let x = {a: 10, b: \"Hello World\"}").unwrap();
     let obj = JSObject::cast(result.as_ref()).unwrap();
-    assert_eq!(obj.get_key("a").unwrap().cast_to_number().value, 10.0);
-    assert_eq!(
-        obj.get_key("b").unwrap().cast_to_string().value,
-        "Hello World"
-    );
+    assert_eq!(obj.get_key("a").cast_to_number().value, 10.0);
+    assert_eq!(obj.get_key("b").cast_to_string().value, "Hello World");
+
+    let result =
+        ExpressionEvaluator::evaluate_source("let x = {a: 10, b: \"Hello World\"}; x.b").unwrap();
+    assert_eq!(result.cast_to_string().value, "Hello World");
 }

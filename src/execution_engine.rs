@@ -29,15 +29,14 @@ pub struct ExecutionContext {
 
 impl ExecutionContext {
     fn new() -> Rc<ExecutionContext> {
-        Rc::new(ExecutionContext {
+        let ctx = Rc::new(ExecutionContext {
             call_stack: RefCell::new(vec![]),
             scopes: RefCell::new(vec![]),
-        })
-    }
+        });
 
-    fn initialize_global_scope(&self) {
         let global_scope = ExecutionScope::new(None);
 
+        // Define JS singletons:
         global_scope
             .define(JSUndefined::get_name(), JSUndefined::get())
             .unwrap();
@@ -54,7 +53,8 @@ impl ExecutionContext {
             .define(JSNumber::get_nan_name(), JSNumber::get_nan())
             .unwrap();
 
-        self.scopes.borrow_mut().push(global_scope);
+        ctx.scopes.borrow_mut().push(global_scope);
+        ctx
     }
 
     fn enter_scope(&self) -> ExecutionScopeRef {
@@ -101,13 +101,9 @@ pub type ExecutionContextRef = Rc<ExecutionContext>;
 
 impl ExpressionEvaluator {
     fn new() -> Self {
-        let ctx = ExecutionContext::new();
-
-        let expression_executor = ExpressionEvaluator { ctx };
-
-        expression_executor.ctx.initialize_global_scope();
-
-        expression_executor
+        ExpressionEvaluator {
+            ctx: ExecutionContext::new(),
+        }
     }
 
     pub fn evaluate_source<T: ToString>(source: T) -> Result<JSValueRef, EngineError> {
@@ -379,8 +375,21 @@ impl ExpressionEvaluator {
         Ok(object)
     }
 
+    fn evaluate_property_access_expression(
+        &self,
+        name: &Expression,
+        expression: &Expression,
+    ) -> Result<JSValueRef, EngineError> {
+        let obj = self.evaluate_expression(expression)?;
+        let obj = JSObject::cast(obj.as_ref()).ok_or(EngineError::execution_engine_error(
+            "Tried to access non object property",
+        ))?;
+        let name = self.evaluate_expression(name)?;
+        Ok(obj.get_key(&name.cast_to_string().value))
+    }
+
     fn evaluate_expression(&self, expression: &Expression) -> Result<JSValueRef, EngineError> {
-        let result = match expression {
+        let result = match &expression {
             Expression::Program { expressions } => self.evaluate_program(expressions),
             Expression::LetVariableDeclaration { name, initializer } => {
                 self.evaluate_let_variable_declaration(name, initializer)
@@ -406,6 +415,9 @@ impl ExpressionEvaluator {
             )),
             Expression::ObjectLiteralExpression { properties } => {
                 self.evaluate_object_literal_expression(properties)
+            }
+            Expression::PropertyAccessExpression { name, expression } => {
+                self.evaluate_property_access_expression(name, expression)
             }
             _ => unimplemented!(),
         };

@@ -565,8 +565,12 @@ impl JSObject {
             .insert(key.to_string(), value.clone());
     }
 
-    pub fn get_key(&self, key: &str) -> Option<JSValueRef> {
-        self.value.borrow().get(key).cloned()
+    pub fn get_key(&self, key: &str) -> JSValueRef {
+        self.value
+            .borrow()
+            .get(key)
+            .cloned()
+            .unwrap_or(JSUndefined::get())
     }
 }
 
