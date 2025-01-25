@@ -1,9 +1,5 @@
 use std::{
-    backtrace::Backtrace,
-    cell::RefCell,
-    collections::HashMap,
     process::ExitCode,
-    rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -15,102 +11,44 @@ mod parser;
 mod tests;
 mod tokenizer;
 
-use std::cell::{Cell, OnceCell};
-
-trait MyTrait {
-    fn print(&self);
-}
-
-struct MyStruct {
-    value: i32,
-}
-
-impl MyTrait for MyStruct {
-    fn print(&self) {
-        println!("Value: {}", self.value);
-    }
-}
-
-thread_local!(static TRUE: OnceCell<Rc<f32>> = OnceCell::new());
-
-fn get_thread_local_true() -> Rc<f32> {
-    TRUE.with(|value| {
-        value
-            .get_or_init(|| {
-                println!("INIT");
-                return Rc::new(0.0);
-            })
-            .clone()
-    })
-}
+use execution_engine::ExpressionEvaluator;
 
 fn main() -> ExitCode {
-    let x = get_thread_local_true();
-    let b = get_thread_local_true();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_micros();
 
-    println!("{:#?}", x == b);
+    let source = String::from(
+        "
+    function one() {
+            return 1;
+    }
 
-    ExitCode::SUCCESS
-    // let my_struct = MyStruct { value: 42 };
-    // let my_trait = &my_struct as &dyn MyTrait;
+    function apply(f) {
+            return f();
+    }
 
-    // let source = String::from(
-    //     "
+    apply(one) + apply(one);
+            ",
+    ); // 3
 
-    //         ",
-    // ); // 3
-    // let mut tokens = vec![];
-
-    // for token in Tokenizer::from_source(source.to_string()).to_iter() {
-    //     match token {
-    //         Ok(token) => tokens.push(token),
-    //         Err(err) => {
-    //             err.print();
-    //             return ExitCode::FAILURE;
-    //         }
-    //     };
-    // }
-
-    // let program = Parser::new(tokens).parse_program();
-
-    // println!("{program:#?}");
-
-    // ExitCode::SUCCESS
-
-    //     let now = SystemTime::now()
-    //         .duration_since(UNIX_EPOCH)
-    //         .unwrap()
-    //         .as_micros();
-
-    //     let source = String::from(
-    //         "
-    // function one() {
-    //         return 1;
-    // }
-
-    // function apply(f) {
-    //         return f();
-    // }
-
-    // apply(one);
-    //         ",
-    //     ); // 3
-
-    //     match ExpressionEvaluator::evaluate_source(source) {
-    //         Ok(value) => {
-    //             println!(
-    //                 "Executed with value: {value:?}, time: {}",
-    //                 SystemTime::now()
-    //                     .duration_since(UNIX_EPOCH)
-    //                     .unwrap()
-    //                     .as_micros()
-    //                     - now
-    //             );
-    //             ExitCode::SUCCESS
-    //         }
-    //         Err(err) => {
-    //             err.print();
-    //             ExitCode::FAILURE
-    //         }
-    //     }
+    match ExpressionEvaluator::evaluate_source(source) {
+        Ok(value) => {
+            println!(
+                "Executed with value: {}, time: {}",
+                value.get_debug_string(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_micros()
+                    - now
+            );
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            err.print();
+            ExitCode::FAILURE
+        }
+    }
 }

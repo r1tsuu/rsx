@@ -4,8 +4,7 @@ use crate::{
     error::EngineError,
     execution_scope::{ExecutionScope, ExecutionScopeRef},
     js_value::{
-        JSBoolean, JSFunction, JSFunctionArgs, JSNumber, JSString, JSUndefined, JSValue,
-        JSValueRef, JSValueType,
+        JSBoolean, JSFunction, JSFunctionArgs, JSNumber, JSString, JSUndefined, JSValueRef,
     },
     parser::{Expression, Parser},
     tokenizer::{Token, TokenKind, Tokenizer},
@@ -249,14 +248,9 @@ impl ExpressionEvaluator {
     ) -> Result<JSValueRef, EngineError> {
         let try_function = self.evaluate_expression(name)?;
 
-        let function = match try_function.retrieve_type() {
-            JSValueType::Function(value) => value,
-            _ => {
-                return Err(EngineError::execution_engine_error(format!(
-                    "Tried to call not a function",
-                )))
-            }
-        };
+        let function = JSFunction::cast(try_function.as_ref()).ok_or(
+            EngineError::execution_engine_error(format!("Tried to call not a function",)),
+        )?;
 
         let mut arguments = vec![];
 
@@ -355,16 +349,16 @@ impl ExpressionEvaluator {
         }
 
         let left_result = self.evaluate_expression(left)?;
-        let right_result = &self.evaluate_expression(right)?;
+        let right_result = self.evaluate_expression(right)?;
 
         match op.kind {
             TokenKind::EqualsEquals => Ok(self
                 .ctx
-                .get_boolean(left_result.is_equal_to_non_strict(&right_result))),
-            TokenKind::Plus => Ok(left_result.add(right_result)),
-            TokenKind::Minus => Ok(left_result.substract(right_result)),
-            TokenKind::Multiply => Ok(left_result.multiply(right_result)),
-            TokenKind::Divide => Ok(left_result.divide(right_result)),
+                .get_boolean(left_result.is_equal_to_non_strict(right_result.as_ref()))),
+            TokenKind::Plus => Ok(left_result.add(right_result.as_ref())),
+            TokenKind::Minus => Ok(left_result.substract(right_result.as_ref())),
+            TokenKind::Multiply => Ok(left_result.multiply(right_result.as_ref())),
+            TokenKind::Divide => Ok(left_result.divide(right_result.as_ref())),
             _ => Err(EngineError::execution_engine_error(format!(
                 "Failed to execute binary expression with operator: {:#?}",
                 op
