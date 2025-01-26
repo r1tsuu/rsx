@@ -24,6 +24,7 @@ pub enum TokenKind {
     EqualsEqualsEquals,
     Comma,
     Dot,
+    New,
     Colon, // :
 }
 
@@ -252,6 +253,7 @@ impl Tokenizer {
                         "function" => Token::build(self, TokenKind::Function, identifier, start),
                         "let" => Token::build(self, TokenKind::Let, identifier, start),
                         "return" => Token::build(self, TokenKind::Return, identifier, start),
+                        "new" => Token::build(self, TokenKind::New, identifier, start),
                         _ => Token::build(self, TokenKind::Identifier, identifier, start),
                     };
                 }

@@ -63,6 +63,10 @@ pub enum Expression {
         name: Rc<Expression>,
         initializer: Rc<Expression>,
     },
+    NewExpression {
+        expression: Rc<Expression>,
+        arguments: Vec<Expression>,
+    },
 }
 
 #[derive(Clone)]
@@ -166,10 +170,25 @@ impl Parser {
             TokenKind::OpenBracket => self.parse_obracket(),
             TokenKind::Function => self.parse_function_declaration(),
             TokenKind::Return => self.parse_function_return(),
+            TokenKind::New => self.parse_new(),
             _ => Err(EngineError::parser_error(format!(
                 "Unexpected token {:#?}",
                 token
             ))),
+        }
+    }
+
+    fn parse_new(&mut self) -> Result<Expression, EngineError> {
+        self.current_token += 1;
+        let expr = self.parse_expression()?;
+
+        if let Expression::FunctionCall { name, arguments } = expr {
+            Ok(Expression::NewExpression {
+                expression: name,
+                arguments,
+            })
+        } else {
+            Err(EngineError::parser_error("Unexpected new"))
         }
     }
 
