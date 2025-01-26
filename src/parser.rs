@@ -326,6 +326,94 @@ impl Parser {
         Ok(Expression::StringLiteral { value: token.text })
     }
 
+    fn parse_object_access(
+        &mut self,
+        name_expression: Expression,
+        next_token: Token,
+    ) -> Result<Expression, EngineError> {
+        let mut assigments = vec![name_expression];
+        let mut next_token = Some(next_token);
+
+        loop {
+            if next_token.unwrap().is_obracket() {
+                let mut extra_brackets: usize = 0;
+                let mut cbracket_i = self.current_token + 2;
+
+                loop {
+                    if let Some(current) = self.tokens.get(cbracket_i) {
+                        if current.is_obracket() {
+                            extra_brackets += 1;
+                        } else if current.is_cbracket() {
+                            if extra_brackets == 0 {
+                                break;
+                            } else {
+                                extra_brackets -= 1;
+                            }
+                        }
+
+                        cbracket_i += 1;
+                    } else {
+                        return Err(EngineError::parser_error("Could not find CBRACKET"));
+                    }
+                }
+
+                let mut bracket_parser =
+                    Parser::new(self.tokens[self.current_token + 2..cbracket_i].to_vec());
+
+                assigments.push(bracket_parser.parse_expression()?);
+                self.current_token += bracket_parser.current_token + 3;
+                next_token = self.tokens.get(self.current_token + 1).cloned();
+            } else {
+                self.current_token += 2;
+                let token = self
+                    .tokens
+                    .get(self.current_token)
+                    .ok_or(EngineError::parser_error("Expected next token after dot"))?;
+
+                if !matches!(token.kind, TokenKind::Identifier) {
+                    return Err(EngineError::parser_error(format!(
+                        "Expected next identifier token after dot, got: {token:#?}"
+                    )));
+                }
+
+                assigments.push(Expression::StringLiteral {
+                    value: token.text.clone(),
+                });
+
+                next_token = self.tokens.get(self.current_token + 1).cloned();
+            }
+
+            if let Some(next_token) = next_token.clone() {
+                if !next_token.is_dot() && !next_token.is_obracket() {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        let mut expr: Option<Expression> = None;
+
+        for ass in assigments {
+            if let Some(some_expr) = expr {
+                expr = Some(Expression::PropertyAccessExpression {
+                    name: Rc::new(ass),
+                    expression: Rc::new(some_expr),
+                });
+            } else {
+                expr = Some(ass);
+            }
+        }
+
+        if let Some(expr) = expr {
+            Ok(expr)
+        } else {
+            return Err(EngineError::parser_error(
+                "Failed to parse PropertyAccessExpression",
+            ));
+        }
+    }
+
     fn parse_identifier(&mut self) -> Result<Expression, EngineError> {
         let token = match self.tokens.get(self.current_token) {
             Some(val) => val.clone(),
@@ -338,87 +426,10 @@ impl Parser {
         };
 
         let expr = if next_token.is_dot() || next_token.is_obracket() {
-            let mut assigments = vec![Expression::Identifier { name: token.text }];
-            let mut next_token = Some(next_token);
-
-            loop {
-                if next_token.unwrap().is_obracket() {
-                    let mut extra_brackets: usize = 0;
-                    let mut cbracket_i = self.current_token + 2;
-
-                    loop {
-                        if let Some(current) = self.tokens.get(cbracket_i) {
-                            if current.is_obracket() {
-                                extra_brackets += 1;
-                            } else if current.is_cbracket() {
-                                if extra_brackets == 0 {
-                                    break;
-                                } else {
-                                    extra_brackets -= 1;
-                                }
-                            }
-
-                            cbracket_i += 1;
-                        } else {
-                            return Err(EngineError::parser_error("Could not find CBRACKET"));
-                        }
-                    }
-
-                    let mut bracket_parser =
-                        Parser::new(self.tokens[self.current_token + 2..cbracket_i].to_vec());
-
-                    assigments.push(bracket_parser.parse_expression()?);
-                    self.current_token += bracket_parser.current_token + 3;
-                    next_token = self.tokens.get(self.current_token + 1);
-                } else {
-                    self.current_token += 2;
-                    let token = self
-                        .tokens
-                        .get(self.current_token)
-                        .ok_or(EngineError::parser_error("Expected next token after dot"))?;
-
-                    if !matches!(token.kind, TokenKind::Identifier) {
-                        return Err(EngineError::parser_error(format!(
-                            "Expected next identifier token after dot, got: {token:#?}"
-                        )));
-                    }
-
-                    assigments.push(Expression::StringLiteral {
-                        value: token.text.clone(),
-                    });
-
-                    next_token = self.tokens.get(self.current_token + 1);
-                }
-
-                if let Some(next_token) = next_token {
-                    if !next_token.is_dot() && !next_token.is_obracket() {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            let mut expr: Option<Expression> = None;
-
-            for ass in assigments {
-                if let Some(some_expr) = expr {
-                    expr = Some(Expression::PropertyAccessExpression {
-                        name: Rc::new(ass),
-                        expression: Rc::new(some_expr),
-                    });
-                } else {
-                    expr = Some(ass);
-                }
-            }
-
-            if let Some(expr) = expr {
-                expr
-            } else {
-                return Err(EngineError::parser_error(
-                    "Failed to parse PropertyAccessExpression",
-                ));
-            }
+            self.parse_object_access(
+                Expression::Identifier { name: token.text },
+                next_token.clone(),
+            )?
         } else {
             Expression::Identifier { name: token.text }
         };
@@ -431,10 +442,48 @@ impl Parser {
         let expr = if next_token.is_oparen() {
             self.current_token += 1;
             let arguments = self.parse_oparen_as_function_arguments()?;
-            Expression::FunctionCall {
+
+            let expr = Expression::FunctionCall {
                 name: Rc::new(expr),
                 arguments,
+            };
+
+            if let Some(next_token) = self.tokens.get(self.current_token + 1) {
+                if next_token.is_dot() {
+                    self.current_token += 2;
+                    let mut identifier = self.parse_identifier()?;
+
+                    if let Expression::Identifier { name } = identifier {
+                        identifier = Expression::StringLiteral { value: name }
+                    }
+
+                    return Ok(Expression::PropertyAccessExpression {
+                        name: Rc::new(identifier),
+                        expression: Rc::new(expr),
+                    });
+                }
+
+                if next_token.is_obracket() {
+                    self.current_token += 1;
+                    let obracket_expr = self.parse_obracket()?;
+                    if let Expression::ArrayLiteralExpression { elements } = obracket_expr {
+                        if let Some(el) = elements.get(0) {
+                            return Ok(Expression::PropertyAccessExpression {
+                                name: Rc::new(el.clone()),
+                                expression: Rc::new(expr),
+                            });
+                        }
+                    }
+
+                    return Err(EngineError::parser_error("Unexpected obracket"));
+                }
+
+                // if next_token.is_dot() || next_token.is_obracket() {
+                //     return self.parse_object_access(expr, next_token.clone());
+                // }
             }
+
+            expr
         } else {
             expr
         };
