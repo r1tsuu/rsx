@@ -35,7 +35,7 @@ pub enum Expression {
         expressions: Vec<Expression>,
     },
     FunctionDeclaration {
-        name: String,
+        name: Option<String>,
         parameters: Vec<Expression>,
         body: Rc<Expression>,
     },
@@ -78,7 +78,7 @@ impl Expression {
             Self::Identifier { name } => name.clone(),
             Self::LetVariableDeclaration { name, .. } => name.clone(),
             Self::FunctionParameter { name, .. } => name.clone(),
-            Self::FunctionDeclaration { name, .. } => name.clone(),
+            Self::FunctionDeclaration { name, .. } => name.clone().unwrap(),
             _ => panic!(),
         }
     }
@@ -176,25 +176,24 @@ impl Parser {
     fn parse_function_declaration(&mut self) -> Result<Expression, EngineError> {
         self.current_token += 1;
 
-        let expect_function_name_identifier_token = self
+        let expect_function_name_identifier_token_or_oparen = self
             .tokens
             .get(self.current_token)
+            .cloned()
             .ok_or(EngineError::parser_error(
-                "Expected identifier token after function",
-            ))
-            .cloned()?;
+                "Expected token after function keyword",
+            ))?;
 
-        if !matches!(
-            expect_function_name_identifier_token.kind,
+        let mut name: Option<String> = None;
+
+        if matches!(
+            expect_function_name_identifier_token_or_oparen.kind,
             TokenKind::Identifier
         ) {
-            return Err(EngineError::parser_error(format!(
-                "Expected identifier token after function, got: {:#?}",
-                expect_function_name_identifier_token
-            )));
+            name = Some(expect_function_name_identifier_token_or_oparen.text);
+            self.current_token += 1;
+        } else {
         }
-
-        self.current_token += 1;
 
         let expect_oparen =
             self.tokens
@@ -231,7 +230,7 @@ impl Parser {
         let body = self.parse_obrace()?;
 
         Ok(Expression::FunctionDeclaration {
-            name: expect_function_name_identifier_token.text,
+            name,
             parameters: args,
             body: Rc::new(body),
         })

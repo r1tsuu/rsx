@@ -16,7 +16,7 @@ use execution_engine::ExpressionEvaluator;
 use parser::Parser;
 
 fn main() -> ExitCode {
-    println!("{:#?}", Parser::parse_source("getObj()[x()]; getObj().x;"));
+    println!("{:#?}", Parser::parse_source("a(function() {})"));
     return ExitCode::SUCCESS;
 
     // let now = SystemTime::now()

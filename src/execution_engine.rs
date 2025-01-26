@@ -186,7 +186,7 @@ impl ExpressionEvaluator {
 
     fn evaluate_function_declaration(
         &self,
-        name: &str,
+        name: Option<&str>,
         parameters: &[Expression],
         body: &Expression,
     ) -> Result<JSValueRef, EngineError> {
@@ -224,9 +224,13 @@ impl ExpressionEvaluator {
             }
         };
 
-        let func = JSFunction::new(func, Some(name));
+        if let Some(name) = name {
+            let func = JSFunction::new(func, Some(name));
 
-        self.ctx.get_current_scope().define(name, func)
+            self.ctx.get_current_scope().define(name, func)
+        } else {
+            Ok(JSFunction::new(func, name))
+        }
     }
 
     fn evaluate_function_call(
@@ -402,7 +406,7 @@ impl ExpressionEvaluator {
                 parameters,
                 body,
                 ..
-            } => self.evaluate_function_declaration(name, parameters, body),
+            } => self.evaluate_function_declaration(name.as_deref(), parameters, body),
             Expression::FunctionCall { name, arguments } => {
                 self.evaluate_function_call(name, arguments)
             }
