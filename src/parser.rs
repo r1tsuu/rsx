@@ -56,6 +56,9 @@ pub enum Expression {
     ObjectLiteralExpression {
         properties: Vec<Expression>,
     },
+    ArrayLiteralExpression {
+        elements: Vec<Expression>,
+    },
     PropertyAssignment {
         name: Rc<Expression>,
         initializer: Rc<Expression>,
@@ -160,6 +163,7 @@ impl Parser {
             TokenKind::Identifier => self.parse_identifier(),
             TokenKind::String => self.parse_string(),
             TokenKind::OpenBrace => self.parse_obrace(),
+            TokenKind::OpenBracket => self.parse_obracket(),
             TokenKind::Function => self.parse_function_declaration(),
             TokenKind::Return => self.parse_function_return(),
             _ => Err(EngineError::parser_error(format!(
@@ -447,6 +451,65 @@ impl Parser {
         };
 
         return Ok(expr);
+    }
+
+    fn parse_obracket(&mut self) -> Result<Expression, EngineError> {
+        let mut extra_bracket: usize = 0;
+        let mut found_close = false;
+        self.current_token += 1;
+        let start = self.current_token;
+
+        while self.current_token < self.tokens.len() {
+            let token = match self.tokens.get(self.current_token) {
+                Some(val) => val,
+                None => {
+                    return Err(EngineError::parser_error(format!(
+                        "parse_obracket token not found on pos {}",
+                        self.current_token
+                    )));
+                }
+            };
+
+            if token.kind == TokenKind::OpenBracket {
+                extra_bracket += 1;
+            } else if token.kind == TokenKind::CloseBracket {
+                if extra_bracket > 0 {
+                    extra_bracket -= 1;
+                } else {
+                    found_close = true;
+                    break;
+                }
+            }
+
+            self.current_token += 1;
+        }
+
+        if !found_close {
+            return Err(EngineError::parser_error("Expected closed Obracket"));
+        }
+
+        let end = self.current_token;
+
+        let spliced = &self.tokens[start..end];
+        let mut parser = Self::new(spliced.to_vec());
+        parser.brace_mode = BraceModeContext::ObjectExpression;
+        let mut elements = vec![];
+
+        while parser.current_token < parser.tokens.len() {
+            let element = parser.parse_expression()?;
+            elements.push(element);
+            parser.current_token += 1;
+            let current_token = parser.tokens.get(parser.current_token);
+
+            if let Some(current_token) = current_token {
+                if !matches!(current_token.kind, TokenKind::Comma) {
+                    return Err(EngineError::parser_error("Expected comma in array"));
+                }
+                parser.current_token += 1;
+            }
+        }
+
+        Ok(Expression::ArrayLiteralExpression { elements })
     }
 
     fn parse_obrace(&mut self) -> Result<Expression, EngineError> {
