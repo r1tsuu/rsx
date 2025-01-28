@@ -36,6 +36,7 @@ enum Expression {
     Num(f64),
     String(String),
     Identifier(String),
+    /// Left, Right
     Add(Box<Expression>, Box<Expression>),
     Sub(Box<Expression>, Box<Expression>),
     Mul(Box<Expression>, Box<Expression>),
@@ -43,14 +44,17 @@ enum Expression {
     Negative(Box<Expression>),
     Call(Box<Expression>, Vec<Expression>),
     Array(Vec<Expression>),
+    Function(Vec<String>, Box<Statement>),
+    /// Object Expression, Element expression
     ElementAccess(Box<Expression>, Box<Expression>),
+    /// Key expression, Value expression
     Object(Vec<(Expression, Expression)>),
 }
 
 #[derive(Debug)]
 enum Statement {
     Let(String, Expression),
-    Assign(String, Expression),
+    Assign(Expression, Expression),
     Return(Box<Expression>),
     Expression(Box<Expression>),
     Block(Vec<Statement>),
@@ -58,7 +62,25 @@ enum Statement {
 }
 
 fn parser() -> impl Parser<char, Vec<Statement>, Error = Simple<char>> {
+    // let block_stmt_parser: fn(
+    //     Recursive<'_, char, Statement, Simple<char>>,
+    // ) -> BoxedParser<'_, char, Statement, Simple<char>> = |stmt_parser| {
+    //     stmt_parser
+    //         .repeated()
+    //         .delimited_by(just('{'), just('}'))
+    //         .padded()
+    //         .map(Statement::Block)
+    //         .boxed()
+    // };
+
     recursive(|stmt_parser| {
+        let block_stmt = stmt_parser
+            .repeated()
+            .delimited_by(just('{'), just('}'))
+            .padded()
+            .map(Statement::Block)
+            .boxed();
+
         let expr_parser = recursive(|expr| {
             let int = text::int(10)
                 .map(|s: String| Expression::Num(s.parse().unwrap()))
@@ -109,9 +131,6 @@ fn parser() -> impl Parser<char, Vec<Statement>, Error = Simple<char>> {
                 .delimited_by(just('['), just(']'))
                 .map(Expression::Array);
 
-            // x: 1
-            // y: 2
-
             let object = text::ident()
                 .padded()
                 .map(Expression::String)
@@ -124,7 +143,27 @@ fn parser() -> impl Parser<char, Vec<Statement>, Error = Simple<char>> {
                 .delimited_by(just('{').padded(), just('}').padded())
                 .map(Expression::Object);
 
+            let func_declr_expr = text::keyword("function")
+                .padded()
+                .then(
+                    text::ident()
+                        .separated_by(just(',').padded())
+                        .delimited_by(just('('), just(')')),
+                )
+                .then(block_stmt.clone().padded())
+                .map(|((_, args), block)| Expression::Function(args, Box::new(block)));
+
+            let arrow_func_expr = text::ident()
+                .separated_by(just(',').padded())
+                .delimited_by(just('('), just(')'))
+                .padded()
+                .then_ignore(just("=>"))
+                .then(block_stmt.clone().padded())
+                .map(|(args, block)| Expression::Function(args, Box::new(block)));
+
             let base_atom = choice((
+                func_declr_expr,
+                arrow_func_expr,
                 call,
                 identifier,
                 float,
@@ -185,7 +224,8 @@ fn parser() -> impl Parser<char, Vec<Statement>, Error = Simple<char>> {
             .then_ignore(just(';'))
             .map(|(name, expr)| Statement::Let(name, expr));
 
-        let assign_stmt = text::ident()
+        let assign_stmt = expr_parser
+            .clone()
             .padded()
             .then_ignore(just('=').padded())
             .then(expr_parser.clone())
@@ -197,12 +237,6 @@ fn parser() -> impl Parser<char, Vec<Statement>, Error = Simple<char>> {
             .ignore_then(expr_parser.clone())
             .then_ignore(just(';'))
             .map(|x| Statement::Return(Box::new(x)));
-
-        let block_stmt = stmt_parser
-            .repeated()
-            .delimited_by(just('{'), just('}'))
-            .padded()
-            .map(Statement::Block);
 
         let func_stmt = text::keyword("function")
             .padded()
@@ -235,7 +269,7 @@ fn parser() -> impl Parser<char, Vec<Statement>, Error = Simple<char>> {
 }
 
 fn main() -> ExitCode {
-    let source = "let x = {x: {x: 2}};";
+    let source = "let x = (c,b)=>{return 1;};";
 
     println!("{:#?}", parser().parse(source));
     return ExitCode::SUCCESS;
