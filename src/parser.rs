@@ -1,3 +1,7 @@
+// TODO:
+// improve error reporting with actual line/column, store that info in Expression itself as well
+// so the execution engine can also use that info for runtime errors, consolidate some repetitive logic
+
 use std::rc::Rc;
 
 use crate::{

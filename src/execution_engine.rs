@@ -5,8 +5,8 @@ use crate::{
     error::EngineError,
     execution_scope::{ExecutionScope, ExecutionScopeRef},
     js_value::{
-        JSBoolean, JSFunction, JSFunctionContext, JSNumber, JSObject, JSString, JSUndefined,
-        JSValueRef,
+        JSBoolean, JSFunction, JSFunctionContext, JSNumber, JSObject, JSObjectRef, JSString,
+        JSUndefined, JSValueRef,
     },
     parser::{Expression, Parser},
     tokenizer::{Token, TokenKind, Tokenizer},
@@ -32,6 +32,8 @@ pub trait EngineAddon {
     fn init(&self, ctx: &ExecutionContext) -> Result<(), EngineError>;
 }
 
+static GLOBAL_THIS: &str = "globalThis";
+
 impl ExecutionContext {
     fn new() -> Result<Rc<ExecutionContext>, EngineError> {
         let ctx = Rc::new(ExecutionContext {
@@ -40,18 +42,31 @@ impl ExecutionContext {
         });
 
         let global_scope = ExecutionScope::new(None);
+        ctx.scopes.borrow_mut().push(global_scope.clone());
+
+        global_scope.define(GLOBAL_THIS, JSObject::new());
 
         // Define JS singletons:
-        global_scope.define(JSUndefined::get_name(), JSUndefined::get())?;
-        global_scope.define(JSBoolean::get_true_name(), JSBoolean::get_true())?;
-        global_scope.define(JSBoolean::get_false_name(), JSBoolean::get_false())?;
-        global_scope.define(JSNumber::get_nan_name(), JSNumber::get_nan())?;
-
-        ctx.scopes.borrow_mut().push(global_scope);
+        ctx.define_global(JSUndefined::get_name(), JSUndefined::get())?;
+        ctx.define_global(JSBoolean::get_true_name(), JSBoolean::get_true())?;
+        ctx.define_global(JSBoolean::get_false_name(), JSBoolean::get_false())?;
+        ctx.define_global(JSNumber::get_nan_name(), JSNumber::get_nan())?;
 
         ctx.load_addon(MathAddon::new())?;
 
         Ok(ctx)
+    }
+
+    pub fn get_global_this(&self) -> JSObjectRef {
+        JSObject::cast_rc(self.get_global_scope().get(GLOBAL_THIS).unwrap()).unwrap()
+    }
+
+    pub fn define_global(&self, name: &str, value: JSValueRef) -> Result<(), EngineError> {
+        self.get_global_scope().define(name, value.clone())?;
+        JSObject::cast(self.get_global_scope().get(GLOBAL_THIS).unwrap().as_ref())
+            .unwrap()
+            .set_key(name, value);
+        Ok(())
     }
 
     pub fn enter_scope(&self) -> ExecutionScopeRef {
@@ -255,6 +270,7 @@ impl ExpressionEvaluator {
             JSFunctionContext {
                 ctx: self.ctx.clone(),
                 js_args: arguments,
+                this: self.ctx.get_global_this(),
             }
         };
 

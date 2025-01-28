@@ -473,6 +473,7 @@ impl JSValue for JSNull {
 pub struct JSFunctionContext {
     pub ctx: ExecutionContextRef,
     pub js_args: Vec<JSValueRef>,
+    pub this: JSObjectRef,
 }
 
 impl JSFunctionContext {
@@ -562,16 +563,104 @@ impl JSValue for JSFunction {
     }
 }
 
+pub struct JSObjectValue {
+    value: JSValueRef,
+    is_enumarable: bool,
+}
+
+impl JSObjectValue {
+    pub fn new_value(value: JSValueRef) -> JSObjectValue {
+        JSObjectValue {
+            is_enumarable: true,
+            value,
+        }
+    }
+}
+
 pub struct JSObject {
-    pub value: RefCell<HashMap<String, JSValueRef>>,
+    pub value: RefCell<HashMap<String, JSObjectValue>>,
+    pub prototype: Option<JSObjectRef>,
+}
+
+thread_local! {
+  static OBJECT_PROTOTYPE: OnceCell<JSObjectRef> = OnceCell::new();
+}
+
+fn define_object_prototype() -> JSObjectRef {
+    let prototype = JSObject::new();
+
+    prototype.set_key_method("hasOwnProperty", |ctx| {
+        let key = &ctx.arg(0).cast_to_string().value;
+        ctx.set_return(JSBoolean::get(ctx.this.value.borrow().contains_key(key)));
+    });
+
+    prototype.set_key_method("toString", |ctx| {
+        ctx.set_return(JSString::new("[object Object]"));
+    });
+
+    prototype.set_key_method("isPrototypeOf", |ctx| {
+        let prototype = &ctx.arg(0);
+
+        if let Some(arg_prototype) = JSObject::cast_rc(prototype.clone()) {
+            if let Some(this_prototype) = ctx.this.prototype.clone() {
+                ctx.set_return(JSBoolean::get(Rc::ptr_eq(&arg_prototype, &this_prototype)));
+                return;
+            }
+        }
+
+        ctx.set_return(JSBoolean::get_false());
+    });
+
+    prototype.set_key_method("valueOf", |ctx| {
+        ctx.set_return(ctx.this.clone());
+    });
+
+    prototype
+}
+
+fn define_function_prototype() -> JSObjectRef {
+    let prototype = JSObject::new_with_prototype(get_object_prototype());
+
+    prototype.set_key_method("call", |ctx| {
+        let this_arg = ctx.arg(0);
+    });
+
+    todo!();
+}
+
+fn get_object_prototype() -> JSObjectRef {
+    OBJECT_PROTOTYPE.with(|value| value.get_or_init(|| define_object_prototype()).clone())
+}
+
+fn define_object_instance() -> JSObjectRef {
+    let object = JSObject::new();
+
+    object.set_key("prototype", get_object_prototype());
+
+    object
 }
 
 pub type JSObjectRef = Rc<JSObject>;
 
 impl JSObject {
+    pub fn new_without_prototype() -> JSObjectRef {
+        Rc::new(JSObject {
+            value: RefCell::new(HashMap::new()),
+            prototype: None,
+        })
+    }
+
+    pub fn new_with_prototype(prototype: JSObjectRef) -> JSObjectRef {
+        Rc::new(JSObject {
+            value: RefCell::new(HashMap::new()),
+            prototype: Some(prototype),
+        })
+    }
+
     pub fn new() -> JSObjectRef {
         Rc::new(JSObject {
             value: RefCell::new(HashMap::new()),
+            prototype: None,
         })
     }
 
@@ -579,10 +668,18 @@ impl JSObject {
         value.downcast_ref::<JSObject>()
     }
 
+    pub fn cast_rc(value: Rc<dyn JSValue>) -> Option<JSObjectRef> {
+        if let Ok(val) = value.as_any_rc().downcast::<JSObject>() {
+            Some(val)
+        } else {
+            None
+        }
+    }
+
     pub fn set_key(&self, key: &str, value: JSValueRef) {
         self.value
             .borrow_mut()
-            .insert(key.to_string(), value.clone());
+            .insert(key.to_string(), JSObjectValue::new_value(value));
     }
 
     pub fn set_key_method<F>(&self, key: &str, function: F)
@@ -593,11 +690,11 @@ impl JSObject {
     }
 
     pub fn get_key(&self, key: &str) -> JSValueRef {
-        self.value
-            .borrow()
-            .get(key)
-            .cloned()
-            .unwrap_or(JSUndefined::get())
+        if let Some(val) = self.value.borrow().get(key) {
+            val.value.clone()
+        } else {
+            JSUndefined::get()
+        }
     }
 }
 

@@ -48,6 +48,10 @@ fn core() {
     let result =
         ExpressionEvaluator::evaluate_source("let x = {a: 10, b: \"Hello World\"}; x.b").unwrap();
     assert_eq!(result.cast_to_string().value, "Hello World");
+
+    let result = ExpressionEvaluator::evaluate_source("globalThis").unwrap();
+    // assert globalThis
+    JSObject::cast(result.as_ref()).unwrap();
 }
 
 #[test]

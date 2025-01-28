@@ -5,7 +5,7 @@ use rand::Rng;
 use crate::{
     error::EngineError,
     execution_engine::{EngineAddon, ExecutionContext},
-    js_value::{JSFunction, JSFunctionContext, JSNumber, JSObject},
+    js_value::{JSFunction, JSFunctionContext, JSNumber, JSObject, JSValue},
 };
 
 pub struct MathAddon {}
@@ -17,6 +17,7 @@ impl MathAddon {
 
     fn sqrt(ctx: JSFunctionContext) {
         let a = ctx.arg(0).cast_to_number();
+        println!("{:#?}", ctx.this.cast_to_string().value);
         ctx.set_return(JSNumber::new(a.value.sqrt()));
     }
 
@@ -230,7 +231,7 @@ impl EngineAddon for MathAddon {
             math.set_key_method(name, method);
         }
 
-        ctx.get_global_scope().define("Math", math)?;
+        ctx.define_global("Math", math)?;
 
         Ok(())
     }

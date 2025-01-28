@@ -1,6 +1,6 @@
 use crate::error::EngineError;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Eq, Clone, Hash, PartialEq)]
 pub enum TokenKind {
     Number,
     Plus,
