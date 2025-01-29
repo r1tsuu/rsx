@@ -1,4 +1,4 @@
-use chumsky::{prelude::*, recursive};
+use chumsky::{combinator::Repeated, prelude::*, recursive};
 
 #[derive(Debug)]
 pub enum Expression {
@@ -40,12 +40,42 @@ enum FuncCallArgsOrProperty {
     Property(Expression),
 }
 
+const LET: &str = "let";
+const IF: &str = "if";
+const ELSE: &str = "else";
+const ELSE_IF: &str = "else if";
+const FUNCTION: &str = "function";
+const RETURN: &str = "return";
+const KEYWORDS: &[&str] = &[LET, IF, ELSE, ELSE_IF, FUNCTION, RETURN];
+
+const BRACKET_OPEN: char = '[';
+const BRACKET_CLOSE: char = ']';
+const PAREN_OPEN: char = '(';
+const PAREN_CLOSE: char = ')';
+const BRACE_OPEN: char = '{';
+const BRACE_CLOSE: char = '}';
+const SEMICOLON: char = ';';
+const DOT: char = '.';
+const COMMA: char = ',';
+const COLON: char = ':';
+const DOUBLE_QUOTE: char = '"';
+const MINUS: char = '-';
+const PLUS: char = '+';
+const MULTIPLY: char = '*';
+const DIVIDE: char = '/';
+const EQUALS: char = '=';
+
+const ARROW: &str = "=>";
+const COMMENT_SINGLE_LINE: &str = "//";
+const COMMENT_MULTI_LINE_START: &str = "/*";
+const COMMENT_MULTI_LINE_END: &str = "*/";
+
 fn number_parser() -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
     text::int(10)
         .map(|s: String| Expression::Num(s.parse().unwrap()))
         .padded()
         .or(text::int(10)
-            .then_ignore(just('.'))
+            .then_ignore(just(DOT))
             .then(text::int(10))
             .map(|(s1, s2)| Expression::Num(format!("{s1}.{s2}").parse().unwrap())))
 }
@@ -59,28 +89,36 @@ fn string_parser() -> impl Parser<char, Expression, Error = Simple<char>> + Clon
         just('t').to('\t'),
     )));
 
-    just('"')
+    just(DOUBLE_QUOTE)
         .ignore_then(
             filter(|c| *c != '\"' && *c != '\\')
                 .or(escaped_char)
                 .repeated(),
         )
-        .then_ignore(just('"'))
+        .then_ignore(just(DOUBLE_QUOTE))
         .collect::<String>()
         .map(Expression::String)
         .padded()
 }
 
 fn identifier_parser() -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
-    text::ident().map(Expression::Identifier).padded()
+    text::ident()
+        .try_map(|ident: String, span| {
+            if KEYWORDS.contains(&ident.as_str()) {
+                Err(Simple::custom(span, format!("Unexpected keyword: {ident}")))
+            } else {
+                Ok(Expression::Identifier(ident))
+            }
+        })
+        .padded()
 }
 
 fn array_parser(
     expr: impl Parser<char, Expression, Error = Simple<char>> + Clone,
 ) -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
     expr.padded()
-        .separated_by(just(',').padded())
-        .delimited_by(just('['), just(']'))
+        .separated_by(just(COMMA).padded())
+        .delimited_by(just(BRACKET_OPEN).padded(), just(BRACE_CLOSE).padded())
         .map(Expression::Array)
 }
 
@@ -91,26 +129,29 @@ fn object_parser(
         .padded()
         .map(Expression::String)
         .or(text::int(10).padded().map(Expression::String))
-        .or(expr.clone().padded().delimited_by(just('['), just(']')))
+        .or(expr
+            .clone()
+            .padded()
+            .delimited_by(just(BRACKET_OPEN), just(BRACKET_CLOSE)))
         .padded()
-        .then_ignore(just(':').padded())
+        .then_ignore(just(COLON).padded())
         .then(expr.clone())
-        .separated_by(just(',').padded())
-        .delimited_by(just('{').padded(), just('}').padded())
+        .separated_by(just(COMMA).padded())
+        .delimited_by(just(BRACE_OPEN).padded(), just(BRACE_CLOSE).padded())
         .map(Expression::Object)
 }
 
 fn named_function_base_parser(
     stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone,
 ) -> impl Parser<char, ((String, Vec<String>), Statement), Error = Simple<char>> + Clone {
-    text::keyword("function")
+    text::keyword(FUNCTION)
         .padded()
         .ignore_then(text::ident())
         .padded()
         .then(
             text::ident()
-                .separated_by(just(',').padded())
-                .delimited_by(just('('), just(')')),
+                .separated_by(just(COMMA).padded())
+                .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE)),
         )
         .then(stmt_parser.padded())
 }
@@ -121,7 +162,7 @@ fn block_parser(
     stmt_parser
         .clone()
         .repeated()
-        .delimited_by(just('{'), just('}'))
+        .delimited_by(just(BRACE_OPEN).padded(), just(BRACE_CLOSE).padded())
         .padded()
         .map(Statement::Block)
 }
@@ -133,19 +174,19 @@ fn function_expression_parser(
         .map(|((name, args), block)| Expression::Function(Some(name), args, Box::new(block)));
 
     let arrow_func_expr = text::ident()
-        .separated_by(just(',').padded())
-        .delimited_by(just('('), just(')'))
+        .separated_by(just(COMMA).padded())
+        .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE))
         .padded()
-        .then_ignore(just("=>"))
+        .then_ignore(just(ARROW))
         .then(block_parser(stmt_parser.clone()).padded())
         .map(|(args, block)| Expression::Function(None, args, Box::new(block)));
 
-    let unnamed_func_expr = text::keyword("function")
+    let unnamed_func_expr = text::keyword(FUNCTION)
         .padded()
         .then(
             text::ident()
-                .separated_by(just(',').padded())
-                .delimited_by(just('('), just(')')),
+                .separated_by(just(COMMA).padded())
+                .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE)),
         )
         .then(stmt_parser.clone().padded())
         .map(|((_, args), block)| Expression::Function(None, args, Box::new(block)));
@@ -158,7 +199,9 @@ fn atom_parser(
     stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone,
 ) -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
     let atom = choice((
-        expr_parser.clone().delimited_by(just('('), just(')')),
+        expr_parser
+            .clone()
+            .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE)),
         function_expression_parser(stmt_parser),
         identifier_parser(),
         number_parser(),
@@ -167,17 +210,19 @@ fn atom_parser(
         object_parser(expr_parser.clone()),
     ));
 
-    let property = just('.')
+    let property = just(DOT)
         .ignore_then(text::ident().map(Expression::String))
-        .or(expr_parser.clone().delimited_by(just('['), just(']')))
+        .or(expr_parser
+            .clone()
+            .delimited_by(just(BRACKET_OPEN), just(BRACKET_CLOSE)))
         .map(|prop| (FuncCallArgsOrProperty::Property(prop)));
 
     // Function calls - now returns (bool, Expression) instead of (bool, Vec<Expression>)
     let args = expr_parser
         .clone()
         .padded()
-        .separated_by(just(',').padded())
-        .delimited_by(just('('), just(')'))
+        .separated_by(just(COMMA).padded())
+        .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE))
         .map(|args| (FuncCallArgsOrProperty::Arguments(args))); // Wrap the Vec in an Expression variant
 
     // Combined member expression
@@ -197,7 +242,7 @@ pub fn expr_parser<'a>(
     recursive(|expr_parser| {
         let op = |c| just(c).padded();
 
-        let unary = op('-')
+        let unary = op(MINUS)
             .repeated()
             .then(atom_parser(expr_parser, stmt_parser))
             .foldr(|_op, rhs| Expression::Negative(Box::new(rhs)));
@@ -205,9 +250,9 @@ pub fn expr_parser<'a>(
         let product = unary
             .clone()
             .then(
-                op('*')
+                op(MULTIPLY)
                     .to(Expression::Mul as fn(_, _) -> _)
-                    .or(op('/').to(Expression::Div as fn(_, _) -> _))
+                    .or(op(DIVIDE).to(Expression::Div as fn(_, _) -> _))
                     .then(unary)
                     .repeated(),
             )
@@ -216,9 +261,9 @@ pub fn expr_parser<'a>(
         let sum = product
             .clone()
             .then(
-                op('+')
+                op(PLUS)
                     .to(Expression::Add as fn(_, _) -> _)
-                    .or(op('-').to(Expression::Sub as fn(_, _) -> _))
+                    .or(op(MINUS).to(Expression::Sub as fn(_, _) -> _))
                     .then(product)
                     .repeated(),
             )
@@ -228,65 +273,74 @@ pub fn expr_parser<'a>(
     })
 }
 
-fn stmt_parser() -> impl Parser<char, Statement, Error = Simple<char>> {
-    recursive(|stmt_parser| {
-        let let_stmt = text::keyword("let")
-            .padded()
-            .ignore_then(text::ident().padded())
-            .then_ignore(just('=').padded())
-            .then(expr_parser(stmt_parser.clone()))
-            .then_ignore(choice((just(';'), just('\n'))))
-            .map(|(name, expr)| Statement::Let(name, Box::new(expr)));
+fn condition_parser<'a>(
+    stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone + 'a,
+) -> impl Parser<char, Statement, Error = Simple<char>> + Clone + 'a {
+    let else_clause = text::keyword(ELSE)
+        .padded()
+        .ignore_then(block_parser(stmt_parser.clone()));
 
-        let else_clause = text::keyword("else")
-            .padded()
-            .ignore_then(block_parser(stmt_parser.clone()))
-            .padded();
+    let else_if_clauses = just(ELSE_IF)
+        .padded()
+        .ignore_then(
+            expr_parser(stmt_parser.clone())
+                .delimited_by(just(PAREN_OPEN).padded(), just(PAREN_CLOSE).padded()),
+        )
+        .then(block_parser(stmt_parser.clone()))
+        .repeated()
+        .at_least(1);
 
-        let else_if_clauses = just("else if")
-            .padded()
-            .ignore_then(
-                expr_parser(stmt_parser.clone())
-                    .delimited_by(just('(').padded(), just(')').padded()),
-            )
-            .padded()
-            .then(block_parser(stmt_parser.clone()))
-            .padded()
-            .repeated()
-            .at_least(1)
-            .padded();
-
-        let condition_stmt = text::keyword("if")
-            .padded()
-            .ignore_then(
-                expr_parser(stmt_parser.clone())
-                    .delimited_by(just('(').padded(), just(')').padded()),
-            )
-            .then(block_parser(stmt_parser.clone()))
-            .padded()
-            .then(else_if_clauses.or_not())
-            .padded()
-            .then(else_clause.or_not())
-            .map(|(((if_expr, if_stmt), else_if_clauses), else_clause)| {
-                let else_if_clauses = else_if_clauses.map(|v| {
-                    Vec::from_iter(
-                        v.into_iter()
-                            .map(|(expr, stmt)| (Box::new(expr), Box::new(stmt))),
-                    )
-                });
-
-                Statement::Condition(
-                    (Box::new(if_expr), Box::new(if_stmt)),
-                    else_if_clauses,
-                    else_clause.map(Box::new),
+    text::keyword(IF)
+        .padded()
+        .ignore_then(
+            expr_parser(stmt_parser.clone())
+                .delimited_by(just(PAREN_OPEN).padded(), just(PAREN_CLOSE).padded()),
+        )
+        .then(block_parser(stmt_parser.clone()))
+        .then(else_if_clauses.or_not())
+        .then(else_clause.or_not())
+        .map(|(((if_expr, if_stmt), else_if_clauses), else_clause)| {
+            let else_if_clauses = else_if_clauses.map(|v| {
+                Vec::from_iter(
+                    v.into_iter()
+                        .map(|(expr, stmt)| (Box::new(expr), Box::new(stmt))),
                 )
             });
 
+            Statement::Condition(
+                (Box::new(if_expr), Box::new(if_stmt)),
+                else_if_clauses,
+                else_clause.map(Box::new),
+            )
+        })
+}
+
+fn comment_ignore_parser() -> Repeated<impl Parser<char, (), Error = Simple<char>> + Clone> {
+    let single_line = just(COMMENT_SINGLE_LINE)
+        .then(take_until(text::newline()))
+        .ignored();
+    let multi_line = just(COMMENT_MULTI_LINE_START)
+        .then(take_until(just(COMMENT_MULTI_LINE_END)))
+        .ignored();
+
+    choice((single_line, multi_line)).repeated()
+}
+
+fn stmt_parser() -> impl Parser<char, Statement, Error = Simple<char>> {
+    recursive(|stmt_parser| {
+        let let_stmt = text::keyword(LET)
+            .padded()
+            .ignore_then(text::ident().padded())
+            .then_ignore(just(EQUALS).padded())
+            .then(expr_parser(stmt_parser.clone()))
+            .then_ignore(choice((just(SEMICOLON), just('\n'))))
+            .map(|(name, expr)| Statement::Let(name, Box::new(expr)));
+
         let assign_stmt = expr_parser(stmt_parser.clone())
             .padded()
-            .then_ignore(just('=').padded())
+            .then_ignore(just(EQUALS).padded())
             .then(expr_parser(stmt_parser.clone()))
-            .then_ignore(choice((just(';'), just('\n'))))
+            .then_ignore(choice((just(SEMICOLON), just('\n'))))
             .try_map(|(name, expr), span| match name {
                 Expression::Identifier(_) | Expression::ElementAccess(..) => {
                     Ok(Statement::Assign(Box::new(name), Box::new(expr)))
@@ -297,32 +351,37 @@ fn stmt_parser() -> impl Parser<char, Statement, Error = Simple<char>> {
                 )),
             });
 
-        let return_stmt = text::keyword("return")
+        let return_stmt = text::keyword(RETURN)
             .padded()
             .ignore_then(expr_parser(stmt_parser.clone()))
-            .then_ignore(just(';').or_not())
+            .then_ignore(just(SEMICOLON).or_not())
             .map(|x| Statement::Return(Box::new(x)));
 
         let func_stmt = named_function_base_parser(stmt_parser.clone())
             .map(|((name, args), block)| Statement::Function(name, args, Box::new(block)));
 
         let expr_stmt = expr_parser(stmt_parser.clone())
-            .then_ignore(just(';'))
+            .then_ignore(just(SEMICOLON))
             .map(|x| Statement::Expression(Box::new(x)));
 
         choice((
             let_stmt,
             return_stmt,
-            condition_stmt,
+            condition_parser(stmt_parser.clone()),
             func_stmt,
             assign_stmt,
             block_parser(stmt_parser),
             expr_stmt,
         ))
         .padded()
+        .padded_by(comment_ignore_parser())
     })
 }
 
 pub fn parser() -> impl Parser<char, Vec<Statement>, Error = Simple<char>> {
-    stmt_parser().repeated().then_ignore(end())
+    stmt_parser()
+        .padded()
+        .padded_by(comment_ignore_parser())
+        .repeated()
+        .then_ignore(end())
 }

@@ -5,7 +5,7 @@ mod parser;
 
 fn main() -> ExitCode {
     let source = "
-{ }
+let b = function;
 ";
 
     println!("{:#?}", parser::parser().parse(source));
