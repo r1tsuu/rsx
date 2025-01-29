@@ -1,1009 +1,328 @@
-// TODO:
-// improve error reporting with actual line/column, store that info in Expression itself as well
-// so the execution engine can also use that info for runtime errors, consolidate some repetitive logic
+use chumsky::{prelude::*, recursive};
 
-use std::rc::Rc;
-
-use crate::{
-    error::EngineError,
-    tokenizer::{Token, TokenKind, Tokenizer},
-};
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Expression {
-    NumberLiteral {
-        value: f64,
-    },
-    StringLiteral {
-        value: String,
-    },
-    BinaryOp {
-        left: Rc<Expression>,
-        op: Token,
-        right: Rc<Expression>,
-    },
-    Program {
-        expressions: Vec<Expression>,
-    },
-    Parenthesized {
-        expression: Rc<Expression>,
-    },
-    LetVariableDeclaration {
-        name: String,
-        initializer: Rc<Expression>,
-    },
-    Identifier {
-        name: String,
-    },
-    Block {
-        expressions: Vec<Expression>,
-    },
-    FunctionDeclaration {
-        name: Option<String>,
-        parameters: Vec<Expression>,
-        body: Rc<Expression>,
-    },
-    FunctionReturn {
-        expression: Rc<Expression>,
-    },
-    FunctionCall {
-        name: Rc<Expression>,
-        arguments: Vec<Expression>,
-    },
-    FunctionParameter {
-        name: String,
-    },
-    PropertyAccessExpression {
-        name: Rc<Expression>,
-        expression: Rc<Expression>,
-    },
-    ObjectLiteralExpression {
-        properties: Vec<Expression>,
-    },
-    ArrayLiteralExpression {
-        elements: Vec<Expression>,
-    },
-    PropertyAssignment {
-        name: Rc<Expression>,
-        initializer: Rc<Expression>,
-    },
-    NewExpression {
-        expression: Rc<Expression>,
-        arguments: Vec<Expression>,
-    },
+    Num(f64),
+    String(String),
+    Identifier(String),
+    /// Left, Right
+    Add(Box<Expression>, Box<Expression>),
+    Sub(Box<Expression>, Box<Expression>),
+    Mul(Box<Expression>, Box<Expression>),
+    Div(Box<Expression>, Box<Expression>),
+    Negative(Box<Expression>),
+    Call(Box<Expression>, Vec<Expression>),
+    Array(Vec<Expression>),
+    Function(Option<String>, Vec<String>, Box<Statement>),
+    /// Object Expression, Element expression
+    ElementAccess(Box<Expression>, Box<Expression>),
+    /// Key expression, Value expression
+    Object(Vec<(Expression, Expression)>),
 }
 
-#[derive(Clone)]
-enum BraceModeContext {
-    ObjectExpression,
-    Block,
+#[derive(Debug)]
+pub enum Statement {
+    Let(String, Box<Expression>),
+    Assign(Box<Expression>, Box<Expression>),
+    Return(Box<Expression>),
+    Expression(Box<Expression>),
+    Block(Vec<Statement>),
+    Function(String, Vec<String>, Box<Statement>),
+    Condition(
+        (Box<Expression>, Box<Statement>),
+        Option<Vec<(Box<Expression>, Box<Statement>)>>,
+        Option<Box<Statement>>,
+    ),
 }
 
-impl Expression {
-    /** Get .name in an unsafe way. Use only if you know that it has name */
-    pub fn unwrap_name(&self) -> String {
-        match self {
-            Self::Identifier { name } => name.clone(),
-            Self::LetVariableDeclaration { name, .. } => name.clone(),
-            Self::FunctionParameter { name, .. } => name.clone(),
-            Self::FunctionDeclaration { name, .. } => name.clone().unwrap(),
-            _ => panic!(),
-        }
-    }
+enum FuncCallArgsOrProperty {
+    Arguments(Vec<Expression>),
+    Property(Expression),
 }
 
-pub struct Parser {
-    tokens: Vec<Token>,
-    current_token: usize,
-    brace_mode: BraceModeContext,
+fn number_parser() -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
+    text::int(10)
+        .map(|s: String| Expression::Num(s.parse().unwrap()))
+        .padded()
+        .or(text::int(10)
+            .then_ignore(just('.'))
+            .then(text::int(10))
+            .map(|(s1, s2)| Expression::Num(format!("{s1}.{s2}").parse().unwrap())))
 }
 
-impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Parser {
-            tokens,
-            current_token: 0,
-            brace_mode: BraceModeContext::Block,
-        }
-    }
+fn string_parser() -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
+    let escaped_char = just('\\').ignore_then(choice((
+        just('\\'),
+        just('\"'),
+        just('n').to('\n'),
+        just('r').to('\r'),
+        just('t').to('\t'),
+    )));
 
-    pub fn parse_program(&mut self) -> Result<Expression, EngineError> {
-        let expressions = self.parse_expressions()?;
+    just('"')
+        .ignore_then(
+            filter(|c| *c != '\"' && *c != '\\')
+                .or(escaped_char)
+                .repeated(),
+        )
+        .then_ignore(just('"'))
+        .collect::<String>()
+        .map(Expression::String)
+        .padded()
+}
 
-        Ok(Expression::Program { expressions })
-    }
+fn identifier_parser() -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
+    text::ident().map(Expression::Identifier).padded()
+}
 
-    pub fn parse_source(source: &str) -> Result<Expression, EngineError> {
-        let mut tokens = vec![];
+fn array_parser(
+    expr: impl Parser<char, Expression, Error = Simple<char>> + Clone,
+) -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
+    expr.padded()
+        .separated_by(just(',').padded())
+        .delimited_by(just('['), just(']'))
+        .map(Expression::Array)
+}
 
-        for token in Tokenizer::from_source(source.to_string()).to_iter() {
-            match token {
-                Ok(token) => tokens.push(token),
-                Err(err) => return Err(err),
-            };
-        }
+fn object_parser(
+    expr: impl Parser<char, Expression, Error = Simple<char>> + Clone,
+) -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
+    text::ident()
+        .padded()
+        .map(Expression::String)
+        .or(text::int(10).padded().map(Expression::String))
+        .or(expr.clone().padded().delimited_by(just('['), just(']')))
+        .padded()
+        .then_ignore(just(':').padded())
+        .then(expr.clone())
+        .separated_by(just(',').padded())
+        .delimited_by(just('{').padded(), just('}').padded())
+        .map(Expression::Object)
+}
 
-        Parser::new(tokens).parse_program()
-    }
+fn named_function_base_parser(
+    stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone,
+) -> impl Parser<char, ((String, Vec<String>), Statement), Error = Simple<char>> + Clone {
+    text::keyword("function")
+        .padded()
+        .ignore_then(text::ident())
+        .padded()
+        .then(
+            text::ident()
+                .separated_by(just(',').padded())
+                .delimited_by(just('('), just(')')),
+        )
+        .then(stmt_parser.padded())
+}
 
-    fn parse_expressions(&mut self) -> Result<Vec<Expression>, EngineError> {
-        let mut expressions = vec![];
+fn block_parser(
+    stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone,
+) -> impl Parser<char, Statement, Error = Simple<char>> + Clone {
+    stmt_parser
+        .clone()
+        .repeated()
+        .delimited_by(just('{'), just('}'))
+        .padded()
+        .map(Statement::Block)
+}
 
-        while self.current_token < self.tokens.len() {
-            let token = match self.tokens.get(self.current_token) {
-                Some(val) => val,
-                None => {
-                    return Err(EngineError::parser_error(
-                        "parse_expressions Unexpected token",
-                    ))
-                }
-            };
+fn function_expression_parser(
+    stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone,
+) -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
+    let func_declr_expr = named_function_base_parser(stmt_parser.clone())
+        .map(|((name, args), block)| Expression::Function(Some(name), args, Box::new(block)));
 
-            if !token.is_semicolon() {
-                match self.parse_expression() {
-                    Ok(expr) => {
-                        expressions.push(expr);
-                    }
-                    Err(err) => return Err(err),
-                }
+    let arrow_func_expr = text::ident()
+        .separated_by(just(',').padded())
+        .delimited_by(just('('), just(')'))
+        .padded()
+        .then_ignore(just("=>"))
+        .then(block_parser(stmt_parser.clone()).padded())
+        .map(|(args, block)| Expression::Function(None, args, Box::new(block)));
+
+    let unnamed_func_expr = text::keyword("function")
+        .padded()
+        .then(
+            text::ident()
+                .separated_by(just(',').padded())
+                .delimited_by(just('('), just(')')),
+        )
+        .then(stmt_parser.clone().padded())
+        .map(|((_, args), block)| Expression::Function(None, args, Box::new(block)));
+
+    choice((func_declr_expr, unnamed_func_expr, arrow_func_expr))
+}
+
+fn atom_parser(
+    expr_parser: impl Parser<char, Expression, Error = Simple<char>> + Clone,
+    stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone,
+) -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
+    let atom = choice((
+        expr_parser.clone().delimited_by(just('('), just(')')),
+        function_expression_parser(stmt_parser),
+        identifier_parser(),
+        number_parser(),
+        string_parser(),
+        array_parser(expr_parser.clone()),
+        object_parser(expr_parser.clone()),
+    ));
+
+    let property = just('.')
+        .ignore_then(text::ident().map(Expression::String))
+        .or(expr_parser.clone().delimited_by(just('['), just(']')))
+        .map(|prop| (FuncCallArgsOrProperty::Property(prop)));
+
+    // Function calls - now returns (bool, Expression) instead of (bool, Vec<Expression>)
+    let args = expr_parser
+        .clone()
+        .padded()
+        .separated_by(just(',').padded())
+        .delimited_by(just('('), just(')'))
+        .map(|args| (FuncCallArgsOrProperty::Arguments(args))); // Wrap the Vec in an Expression variant
+
+    // Combined member expression
+    atom.clone()
+        .then(property.or(args).repeated())
+        .foldl(|expr, right| match right {
+            FuncCallArgsOrProperty::Arguments(args) => Expression::Call(Box::new(expr), args),
+            FuncCallArgsOrProperty::Property(prop) => {
+                Expression::ElementAccess(Box::new(expr), Box::new(prop))
             }
-
-            self.current_token += 1;
-        }
-
-        Ok(expressions)
-    }
-
-    fn parse_expression(&mut self) -> Result<Expression, EngineError> {
-        let token = match self.tokens.get(self.current_token) {
-            Some(val) => val,
-            None => {
-                return Err(EngineError::parser_error(
-                    "parse_expression Unexpected token",
-                ))
-            }
-        };
-
-        match token.kind {
-            TokenKind::Number => self.parse_number(),
-            TokenKind::OpenParen => self.parse_oparen_as_expression(),
-            TokenKind::Let => self.parse_let(),
-            TokenKind::Identifier => self.parse_identifier(),
-            TokenKind::String => self.parse_string(),
-            TokenKind::OpenBrace => self.parse_obrace(),
-            TokenKind::OpenBracket => self.parse_obracket(),
-            TokenKind::Function => self.parse_function_declaration(),
-            TokenKind::Return => self.parse_function_return(),
-            TokenKind::New => self.parse_new(),
-            _ => Err(EngineError::parser_error(format!(
-                "Unexpected token {:#?}",
-                token
-            ))),
-        }
-    }
-
-    fn parse_new(&mut self) -> Result<Expression, EngineError> {
-        self.current_token += 1;
-        let expr = self.parse_expression()?;
-
-        if let Expression::FunctionCall { name, arguments } = expr {
-            Ok(Expression::NewExpression {
-                expression: name,
-                arguments,
-            })
-        } else {
-            Err(EngineError::parser_error("Unexpected new"))
-        }
-    }
-
-    fn parse_function_declaration(&mut self) -> Result<Expression, EngineError> {
-        self.current_token += 1;
-
-        let expect_function_name_identifier_token_or_oparen = self
-            .tokens
-            .get(self.current_token)
-            .cloned()
-            .ok_or(EngineError::parser_error(
-                "Expected token after function keyword",
-            ))?;
-
-        let mut name: Option<String> = None;
-
-        if matches!(
-            expect_function_name_identifier_token_or_oparen.kind,
-            TokenKind::Identifier
-        ) {
-            name = Some(expect_function_name_identifier_token_or_oparen.text);
-            self.current_token += 1;
-        } else {
-        }
-
-        let expect_oparen =
-            self.tokens
-                .get(self.current_token)
-                .ok_or(EngineError::parser_error(
-                    "Expected oparen start token after function name",
-                ))?;
-
-        if !matches!(expect_oparen.kind, TokenKind::OpenParen) {
-            return Err(EngineError::parser_error(format!(
-                "Expected oparen start token after function name, got: {:#?}",
-                expect_oparen
-            )));
-        }
-
-        let args = self.parse_oparen_as_function_declaration_parameters()?;
-
-        let expect_obrace =
-            self.tokens
-                .get(self.current_token)
-                .ok_or(EngineError::parser_error(
-                    "Expected block start token after function args",
-                ))?;
-
-        if !matches!(expect_obrace.kind, TokenKind::OpenBrace) {
-            return Err(EngineError::parser_error(format!(
-                "Expected block start token after function args, got: {:#?}",
-                expect_obrace
-            )));
-        }
-
-        self.brace_mode = BraceModeContext::Block;
-
-        let body = self.parse_obrace()?;
-
-        Ok(Expression::FunctionDeclaration {
-            name,
-            parameters: args,
-            body: Rc::new(body),
         })
-    }
+}
 
-    fn parse_function_return(&mut self) -> Result<Expression, EngineError> {
-        self.current_token += 1;
-        let expression = self.parse_expression()?;
-        Ok(Expression::FunctionReturn {
-            expression: Rc::new(expression),
-        })
-    }
+pub fn expr_parser<'a>(
+    stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone + 'a,
+) -> impl Parser<char, Expression, Error = Simple<char>> + Clone + 'a {
+    recursive(|expr_parser| {
+        let op = |c| just(c).padded();
 
-    fn parse_let(&mut self) -> Result<Expression, EngineError> {
-        match self.tokens.get(self.current_token) {
-            None => return Err(EngineError::parser_error("Unexpected let")),
-            _ => {}
-        };
+        let unary = op('-')
+            .repeated()
+            .then(atom_parser(expr_parser, stmt_parser))
+            .foldr(|_op, rhs| Expression::Negative(Box::new(rhs)));
 
-        let expect_identifier_token = self
-            .tokens
-            .get(self.current_token + 1)
-            .ok_or_else(|| EngineError::parser_error("Expected identifier token after let"))?;
+        let product = unary
+            .clone()
+            .then(
+                op('*')
+                    .to(Expression::Mul as fn(_, _) -> _)
+                    .or(op('/').to(Expression::Div as fn(_, _) -> _))
+                    .then(unary)
+                    .repeated(),
+            )
+            .foldl(|lhs, (op, rhs)| op(Box::new(lhs), Box::new(rhs)));
 
-        if expect_identifier_token.kind != TokenKind::Identifier {
-            return Err(EngineError::parser_error(
-                "Expected identifier token after let",
-            ));
-        }
+        let sum = product
+            .clone()
+            .then(
+                op('+')
+                    .to(Expression::Add as fn(_, _) -> _)
+                    .or(op('-').to(Expression::Sub as fn(_, _) -> _))
+                    .then(product)
+                    .repeated(),
+            )
+            .foldl(|lhs, (op, rhs)| op(Box::new(lhs), Box::new(rhs)));
 
-        let expect_equals_token = match self.tokens.get(self.current_token + 2) {
-            Some(val) => val,
-            None => {
-                return Err(EngineError::parser_error(
-                    "Expected equals token after let and identifier",
-                ))
-            }
-        };
+        sum
+    })
+}
 
-        if expect_equals_token.kind != TokenKind::Equals {
-            return Err(EngineError::parser_error(
-                "Expected equals token after let and identifier",
-            ));
-        }
+fn stmt_parser() -> impl Parser<char, Statement, Error = Simple<char>> {
+    recursive(|stmt_parser| {
+        let let_stmt = text::keyword("let")
+            .padded()
+            .ignore_then(text::ident().padded())
+            .then_ignore(just('=').padded())
+            .then(expr_parser(stmt_parser.clone()))
+            .then_ignore(choice((just(';'), just('\n'))))
+            .map(|(name, expr)| Statement::Let(name, Box::new(expr)));
 
-        self.current_token += 3;
+        let else_clause = text::keyword("else")
+            .padded()
+            .ignore_then(block_parser(stmt_parser.clone()))
+            .padded();
 
-        let expect_identifier_token = expect_identifier_token.clone();
+        let else_if_clauses = just("else if")
+            .padded()
+            .ignore_then(
+                expr_parser(stmt_parser.clone())
+                    .delimited_by(just('(').padded(), just(')').padded()),
+            )
+            .padded()
+            .then(block_parser(stmt_parser.clone()))
+            .padded()
+            .repeated()
+            .at_least(1)
+            .padded();
 
-        // Do not treat { } as blocks from here.
-        self.brace_mode = BraceModeContext::ObjectExpression;
-        let res = match self.parse_expression() {
-            Ok(expr) => Expression::LetVariableDeclaration {
-                name: expect_identifier_token.text,
-                initializer: Rc::from(expr),
-            },
-            Err(err) => return Err(err),
-        };
-        // back
-        self.brace_mode = BraceModeContext::Block;
-        Ok(res)
-    }
-
-    fn parse_number(&mut self) -> Result<Expression, EngineError> {
-        let token = match self.tokens.get(self.current_token) {
-            Some(val) => val.clone(),
-            None => return Err(EngineError::parser_error("Unexpected number")),
-        };
-
-        match self.tokens.get(self.current_token + 1) {
-            Some(next_token) => {
-                if !next_token.is_binary_operator() {
-                    return Ok(Expression::NumberLiteral {
-                        value: token.text.parse::<f64>().unwrap(),
-                    });
-                }
-
-                self.parse_binary_op_expression(None)
-            }
-            None => Ok(Expression::NumberLiteral {
-                value: token.text.parse::<f64>().unwrap(),
-            }),
-        }
-    }
-
-    fn parse_string(&mut self) -> Result<Expression, EngineError> {
-        let token = match self.tokens.get(self.current_token) {
-            Some(val) => val.clone(),
-            None => return Err(EngineError::parser_error("Unexpected string")),
-        };
-
-        Ok(Expression::StringLiteral { value: token.text })
-    }
-
-    fn parse_object_access(
-        &mut self,
-        name_expression: Expression,
-        next_token: Token,
-    ) -> Result<Expression, EngineError> {
-        let mut assigments = vec![name_expression];
-        let mut next_token = Some(next_token);
-
-        loop {
-            if next_token.unwrap().is_obracket() {
-                let mut extra_brackets: usize = 0;
-                let mut cbracket_i = self.current_token + 2;
-
-                loop {
-                    if let Some(current) = self.tokens.get(cbracket_i) {
-                        if current.is_obracket() {
-                            extra_brackets += 1;
-                        } else if current.is_cbracket() {
-                            if extra_brackets == 0 {
-                                break;
-                            } else {
-                                extra_brackets -= 1;
-                            }
-                        }
-
-                        cbracket_i += 1;
-                    } else {
-                        return Err(EngineError::parser_error("Could not find CBRACKET"));
-                    }
-                }
-
-                let mut bracket_parser =
-                    Parser::new(self.tokens[self.current_token + 2..cbracket_i].to_vec());
-
-                assigments.push(bracket_parser.parse_expression()?);
-                self.current_token += bracket_parser.current_token + 3;
-                next_token = self.tokens.get(self.current_token + 1).cloned();
-            } else {
-                self.current_token += 2;
-                let token = self
-                    .tokens
-                    .get(self.current_token)
-                    .ok_or(EngineError::parser_error("Expected next token after dot"))?;
-
-                if !matches!(token.kind, TokenKind::Identifier) {
-                    return Err(EngineError::parser_error(format!(
-                        "Expected next identifier token after dot, got: {token:#?}"
-                    )));
-                }
-
-                assigments.push(Expression::StringLiteral {
-                    value: token.text.clone(),
+        let condition_stmt = text::keyword("if")
+            .padded()
+            .ignore_then(
+                expr_parser(stmt_parser.clone())
+                    .delimited_by(just('(').padded(), just(')').padded()),
+            )
+            .then(block_parser(stmt_parser.clone()))
+            .padded()
+            .then(else_if_clauses.or_not())
+            .padded()
+            .then(else_clause.or_not())
+            .map(|(((if_expr, if_stmt), else_if_clauses), else_clause)| {
+                let else_if_clauses = else_if_clauses.map(|v| {
+                    Vec::from_iter(
+                        v.into_iter()
+                            .map(|(expr, stmt)| (Box::new(expr), Box::new(stmt))),
+                    )
                 });
 
-                next_token = self.tokens.get(self.current_token + 1).cloned();
-            }
+                Statement::Condition(
+                    (Box::new(if_expr), Box::new(if_stmt)),
+                    else_if_clauses,
+                    else_clause.map(Box::new),
+                )
+            });
 
-            if let Some(next_token) = next_token.clone() {
-                if !next_token.is_dot() && !next_token.is_obracket() {
-                    break;
+        let assign_stmt = expr_parser(stmt_parser.clone())
+            .padded()
+            .then_ignore(just('=').padded())
+            .then(expr_parser(stmt_parser.clone()))
+            .then_ignore(choice((just(';'), just('\n'))))
+            .try_map(|(name, expr), span| match name {
+                Expression::Identifier(_) | Expression::ElementAccess(..) => {
+                    Ok(Statement::Assign(Box::new(name), Box::new(expr)))
                 }
-            } else {
-                break;
-            }
-        }
-
-        let mut expr: Option<Expression> = None;
-
-        for ass in assigments {
-            if let Some(some_expr) = expr {
-                expr = Some(Expression::PropertyAccessExpression {
-                    name: Rc::new(ass),
-                    expression: Rc::new(some_expr),
-                });
-            } else {
-                expr = Some(ass);
-            }
-        }
-
-        if let Some(expr) = expr {
-            Ok(expr)
-        } else {
-            return Err(EngineError::parser_error(
-                "Failed to parse PropertyAccessExpression",
-            ));
-        }
-    }
-
-    fn parse_identifier(&mut self) -> Result<Expression, EngineError> {
-        let token = match self.tokens.get(self.current_token) {
-            Some(val) => val.clone(),
-            None => return Err(EngineError::parser_error("Unexpected identifier")),
-        };
-
-        let next_token = match self.tokens.get(self.current_token + 1) {
-            None => return Ok(Expression::Identifier { name: token.text }),
-            Some(value) => value,
-        };
-
-        let expr = if next_token.is_dot() || next_token.is_obracket() {
-            self.parse_object_access(
-                Expression::Identifier { name: token.text },
-                next_token.clone(),
-            )?
-        } else {
-            Expression::Identifier { name: token.text }
-        };
-
-        let next_token = match self.tokens.get(self.current_token + 1) {
-            None => return Ok(expr),
-            Some(value) => value,
-        };
-
-        let expr = if next_token.is_oparen() {
-            self.current_token += 1;
-            let arguments = self.parse_oparen_as_function_arguments()?;
-
-            let expr = Expression::FunctionCall {
-                name: Rc::new(expr),
-                arguments,
-            };
-
-            if let Some(next_token) = self.tokens.get(self.current_token + 1) {
-                if next_token.is_dot() {
-                    self.current_token += 2;
-                    let mut identifier = self.parse_identifier()?;
-
-                    if let Expression::Identifier { name } = identifier {
-                        identifier = Expression::StringLiteral { value: name }
-                    }
-
-                    return Ok(Expression::PropertyAccessExpression {
-                        name: Rc::new(identifier),
-                        expression: Rc::new(expr),
-                    });
-                }
-
-                if next_token.is_obracket() {
-                    self.current_token += 1;
-                    let obracket_expr = self.parse_obracket()?;
-                    if let Expression::ArrayLiteralExpression { elements } = obracket_expr {
-                        if let Some(el) = elements.get(0) {
-                            return Ok(Expression::PropertyAccessExpression {
-                                name: Rc::new(el.clone()),
-                                expression: Rc::new(expr),
-                            });
-                        }
-                    }
-
-                    return Err(EngineError::parser_error("Unexpected obracket"));
-                }
-
-                // if next_token.is_dot() || next_token.is_obracket() {
-                //     return self.parse_object_access(expr, next_token.clone());
-                // }
-            }
-
-            expr
-        } else {
-            expr
-        };
-
-        let next_token = match self.tokens.get(self.current_token + 1) {
-            None => return Ok(expr),
-            Some(value) => value,
-        };
-
-        let expr = if next_token.is_binary_operator() {
-            self.parse_binary_op_expression(Some(&expr))?
-        } else {
-            expr
-        };
-
-        return Ok(expr);
-    }
-
-    fn parse_obracket(&mut self) -> Result<Expression, EngineError> {
-        let mut extra_bracket: usize = 0;
-        let mut found_close = false;
-        self.current_token += 1;
-        let start = self.current_token;
-
-        while self.current_token < self.tokens.len() {
-            let token = match self.tokens.get(self.current_token) {
-                Some(val) => val,
-                None => {
-                    return Err(EngineError::parser_error(format!(
-                        "parse_obracket token not found on pos {}",
-                        self.current_token
-                    )));
-                }
-            };
-
-            if token.kind == TokenKind::OpenBracket {
-                extra_bracket += 1;
-            } else if token.kind == TokenKind::CloseBracket {
-                if extra_bracket > 0 {
-                    extra_bracket -= 1;
-                } else {
-                    found_close = true;
-                    break;
-                }
-            }
-
-            self.current_token += 1;
-        }
-
-        if !found_close {
-            return Err(EngineError::parser_error("Expected closed Obracket"));
-        }
-
-        let end = self.current_token;
-
-        let spliced = &self.tokens[start..end];
-        let mut parser = Self::new(spliced.to_vec());
-        parser.brace_mode = BraceModeContext::ObjectExpression;
-        let mut elements = vec![];
-
-        while parser.current_token < parser.tokens.len() {
-            let element = parser.parse_expression()?;
-            elements.push(element);
-            parser.current_token += 1;
-            let current_token = parser.tokens.get(parser.current_token);
-
-            if let Some(current_token) = current_token {
-                if !matches!(current_token.kind, TokenKind::Comma) {
-                    return Err(EngineError::parser_error("Expected comma in array"));
-                }
-                parser.current_token += 1;
-            }
-        }
-
-        Ok(Expression::ArrayLiteralExpression { elements })
-    }
-
-    fn parse_obrace(&mut self) -> Result<Expression, EngineError> {
-        let mut extra_paren: usize = 0;
-        let mut found_close = false;
-        self.current_token += 1;
-        let start = self.current_token;
-
-        while self.current_token < self.tokens.len() {
-            let token = match self.tokens.get(self.current_token) {
-                Some(val) => val,
-                None => {
-                    return Err(EngineError::parser_error(format!(
-                        "parse_obrace token not found on pos {}",
-                        self.current_token
-                    )));
-                }
-            };
-
-            if token.kind == TokenKind::OpenBrace {
-                extra_paren += 1;
-            } else if token.kind == TokenKind::CloseBrace {
-                if extra_paren > 0 {
-                    extra_paren -= 1;
-                } else {
-                    found_close = true;
-                    break;
-                }
-            }
-
-            self.current_token += 1;
-        }
-
-        if !found_close {
-            return Err(EngineError::parser_error("Expected closed OBrace"));
-        }
-
-        let end = self.current_token;
-
-        let spliced = &self.tokens[start..end];
-
-        if matches!(self.brace_mode, BraceModeContext::ObjectExpression) {
-            let mut parser = Self::new(spliced.to_vec());
-            let mut properties = vec![];
-
-            while parser.current_token < parser.tokens.len() {
-                let name_identifier = parser.parse_string()?;
-                parser.current_token += 1;
-
-                let expect_colon = parser
-                    .tokens
-                    .get(parser.current_token)
-                    .ok_or(EngineError::parser_error(
-                        "Expected COLON in object expression",
-                    ))?
-                    .clone();
-
-                if !matches!(expect_colon.kind, TokenKind::Colon) {
-                    return Err(EngineError::parser_error(format!(
-                        "Expected COLON in object expression, got: {expect_colon:#?}"
-                    )));
-                }
-
-                parser.current_token += 1;
-                parser.brace_mode = BraceModeContext::ObjectExpression;
-
-                let initializer = parser.parse_expression()?;
-
-                parser.current_token += 2;
-
-                properties.push(Expression::PropertyAssignment {
-                    name: Rc::new(name_identifier),
-                    initializer: Rc::new(initializer),
-                });
-            }
-
-            return Ok(Expression::ObjectLiteralExpression { properties });
-        }
-
-        let mut parser = Self::new(spliced.to_vec());
-
-        let expressions = parser.parse_expressions()?;
-
-        self.current_token = end + 1;
-
-        match self.tokens.get(end + 1) {
-            Some(v) => {
-                if v.kind != TokenKind::Semicolon {
-                    self.current_token -= 1;
-                }
-            }
-            _ => {}
-        }
-
-        let expr = Expression::Block { expressions };
-
-        Ok(expr)
-    }
-
-    fn parse_oparen_as_expression(&mut self) -> Result<Expression, EngineError> {
-        let mut extra_paren: usize = 0;
-        let mut found_close = false;
-        self.current_token += 1;
-        let start = self.current_token;
-
-        while self.current_token < self.tokens.len() {
-            let token = match self.tokens.get(self.current_token) {
-                Some(val) => val,
-                None => {
-                    return Err(EngineError::parser_error(format!(
-                        "parse_oparen_as_expression token not found on pos {}",
-                        self.current_token
-                    )));
-                }
-            };
-
-            if token.kind == TokenKind::OpenParen {
-                extra_paren += 1;
-            } else if token.kind == TokenKind::CloseParen {
-                if extra_paren > 0 {
-                    extra_paren -= 1;
-                } else {
-                    found_close = true;
-                    break;
-                }
-            }
-
-            self.current_token += 1;
-        }
-
-        if !found_close {
-            return Err(EngineError::parser_error("Expected closed OParen"));
-        }
-
-        let end = self.current_token;
-
-        let spliced = &self.tokens[start..end + 1];
-
-        let mut parser = Self::new(spliced.to_vec());
-
-        let expression = match parser.parse_expression() {
-            Ok(val) => val,
-            Err(err) => return Err(err),
-        };
-
-        self.current_token = end + 1;
-
-        let expr = Expression::Parenthesized {
-            expression: Rc::from(expression),
-        };
-
-        match self.tokens.get(self.current_token) {
-            Some(next_token) => {
-                if next_token.is_semicolon() {
-                    return Ok(expr);
-                }
-
-                if next_token.is_binary_operator() {
-                    let op = next_token.clone();
-                    self.current_token += 1;
-
-                    match self.parse_expression() {
-                        Ok(right) => Ok(Expression::BinaryOp {
-                            left: Rc::from(expr),
-                            op,
-                            right: Rc::from(right),
-                        }),
-                        Err(err) => Err(err),
-                    }
-                } else {
-                    self.current_token -= 1;
-                    Ok(expr)
-                }
-            }
-            None => Ok(expr),
-        }
-    }
-
-    fn parse_oparen_as_function_declaration_parameters(
-        &mut self,
-    ) -> Result<Vec<Expression>, EngineError> {
-        let mut extra_paren: usize = 0;
-        let mut found_close = false;
-        self.current_token += 1;
-        let start = self.current_token;
-
-        while self.current_token < self.tokens.len() {
-            let token = match self.tokens.get(self.current_token) {
-                Some(val) => val,
-                None => {
-                    return Err(EngineError::parser_error(format!(
-                        "parse_oparen_as_function_parameters token not found on pos {}",
-                        self.current_token
-                    )));
-                }
-            };
-
-            if token.kind == TokenKind::OpenParen {
-                extra_paren += 1;
-            } else if token.kind == TokenKind::CloseParen {
-                if extra_paren > 0 {
-                    extra_paren -= 1;
-                } else {
-                    found_close = true;
-                    break;
-                }
-            }
-
-            self.current_token += 1;
-        }
-
-        if !found_close {
-            return Err(EngineError::parser_error("Expected closed OParen"));
-        }
-
-        let end = self.current_token;
-
-        let spliced = &self.tokens[start..end];
-
-        let mut chunks: Vec<Vec<Token>> = vec![];
-        let mut current_chunk = 0;
-
-        for token in spliced {
-            if matches!(token.kind, TokenKind::Comma) {
-                current_chunk += 1;
-                continue;
-            } else {
-                if current_chunk + 1 > chunks.len() {
-                    chunks.push(vec![]);
-                }
-                chunks.get_mut(current_chunk).unwrap().push(token.clone());
-            }
-        }
-
-        let mut expressions = vec![];
-
-        if chunks.len() > 0 {
-            for chunk in chunks {
-                let mut parser = Self::new(chunk);
-
-                let expression = parser.parse_expression()?;
-                match expression {
-                    Expression::Identifier { name } => {
-                        expressions.push(Expression::FunctionParameter { name })
-                    }
-                    _ => {
-                        return Err(EngineError::parser_error(format!(
-                            "Invalid function parameter: {expression:#?}"
-                        )))
-                    }
-                }
-            }
-        }
-
-        self.current_token = end + 1;
-
-        Ok(expressions)
-    }
-
-    fn parse_oparen_as_function_arguments(&mut self) -> Result<Vec<Expression>, EngineError> {
-        let mut extra_paren: usize = 0;
-        let mut found_close = false;
-        self.current_token += 1;
-        let start = self.current_token;
-
-        while self.current_token < self.tokens.len() {
-            let token = match self.tokens.get(self.current_token) {
-                Some(val) => val,
-                None => {
-                    return Err(EngineError::parser_error(format!(
-                        "parse_oparen_as_function_arguments token not found on pos {}",
-                        self.current_token
-                    )));
-                }
-            };
-
-            if token.kind == TokenKind::OpenParen {
-                extra_paren += 1;
-            } else if token.kind == TokenKind::CloseParen {
-                if extra_paren > 0 {
-                    extra_paren -= 1;
-                } else {
-                    found_close = true;
-                    break;
-                }
-            }
-
-            self.current_token += 1;
-        }
-
-        if !found_close {
-            return Err(EngineError::parser_error("Expected closed OParen"));
-        }
-
-        let end = self.current_token;
-
-        let spliced = &self.tokens[start..end];
-
-        let mut chunks: Vec<Vec<Token>> = vec![];
-        let mut current_chunk = 0;
-
-        for token in spliced {
-            if matches!(token.kind, TokenKind::Comma) {
-                current_chunk += 1;
-                continue;
-            } else {
-                if current_chunk + 1 > chunks.len() {
-                    chunks.push(vec![]);
-                }
-                chunks.get_mut(current_chunk).unwrap().push(token.clone());
-            }
-        }
-
-        let mut expressions = vec![];
-
-        if chunks.len() > 0 {
-            for chunk in chunks {
-                let mut parser = Self::new(chunk);
-
-                let expression = parser.parse_expression()?;
-
-                expressions.push(expression)
-            }
-        }
-
-        self.current_token = end;
-
-        Ok(expressions)
-    }
-
-    fn parse_binary_op_expression(
-        &mut self,
-        left_expression: Option<&Expression>,
-    ) -> Result<Expression, EngineError> {
-        let left = if let Some(left_expression) = left_expression {
-            left_expression.clone()
-        } else {
-            match self.tokens.get(self.current_token) {
-                Some(left_token) => match left_token.kind {
-                    TokenKind::Identifier => Expression::Identifier {
-                        name: left_token.clone().text,
-                    },
-                    TokenKind::Number => Expression::NumberLiteral {
-                        value: left_token.text.parse::<f64>().unwrap(),
-                    },
-                    _ => {
-                        return Err(EngineError::parser_error(format!(
-                            "parse_binary_op_expression unexpected left token {:#?}",
-                            left_token
-                        )));
-                    }
-                },
-                None => {
-                    return Err(EngineError::parser_error(
-                        "parse_binary_op_expression expected token",
-                    ));
-                }
-            }
-        };
-
-        let op = match self.tokens.get(self.current_token + 1) {
-            Some(val) => val.clone(),
-            None => {
-                return Err(EngineError::parser_error(
-                    "parse_binary_op_expression expected operator",
-                ))
-            }
-        };
-
-        self.current_token += 2;
-
-        match self.parse_expression() {
-            Ok(right) => Ok(Self::reorder_expression(&Expression::BinaryOp {
-                left: Rc::new(left),
-                op,
-                right: Rc::new(right),
-            })),
-            Err(err) => Err(err),
-        }
-    }
-
-    pub fn reorder_expression(expr: &Expression) -> Expression {
-        match expr {
-            Expression::BinaryOp { left, op, right } => {
-                let left = Self::reorder_expression(left);
-                let right = Self::reorder_expression(right);
-
-                if let Expression::BinaryOp {
-                    left: right_left,
-                    op: right_op,
-                    right: right_right,
-                } = right.clone()
-                {
-                    if Self::get_precedence(&op) > Self::get_precedence(&right_op) {
-                        let new_left = Expression::BinaryOp {
-                            left: Rc::from(left),
-                            op: op.clone(),
-                            right: right_left,
-                        };
-
-                        return Expression::BinaryOp {
-                            left: Rc::from(new_left),
-                            op: right_op,
-                            right: right_right,
-                        };
-                    }
-                }
-
-                return Expression::BinaryOp {
-                    left: Rc::from(left),
-                    op: op.clone(),
-                    right: Rc::from(right),
-                };
-            }
-            _ => expr.clone(),
-        }
-    }
-
-    fn get_precedence(token: &Token) -> i32 {
-        match token.kind {
-            TokenKind::Plus | TokenKind::Minus => 1,
-            TokenKind::Multiply | TokenKind::Divide => 2,
-            _ => 0,
-        }
-    }
+                _ => Err(Simple::custom(
+                    span,
+                    "Invalid left-hand side in assigment. Must be a reference.",
+                )),
+            });
+
+        let return_stmt = text::keyword("return")
+            .padded()
+            .ignore_then(expr_parser(stmt_parser.clone()))
+            .then_ignore(just(';').or_not())
+            .map(|x| Statement::Return(Box::new(x)));
+
+        let func_stmt = named_function_base_parser(stmt_parser.clone())
+            .map(|((name, args), block)| Statement::Function(name, args, Box::new(block)));
+
+        let expr_stmt = expr_parser(stmt_parser.clone())
+            .then_ignore(just(';'))
+            .map(|x| Statement::Expression(Box::new(x)));
+
+        choice((
+            let_stmt,
+            return_stmt,
+            condition_stmt,
+            func_stmt,
+            assign_stmt,
+            block_parser(stmt_parser),
+            expr_stmt,
+        ))
+        .padded()
+    })
+}
+
+pub fn parser() -> impl Parser<char, Vec<Statement>, Error = Simple<char>> {
+    stmt_parser().repeated().then_ignore(end())
 }
