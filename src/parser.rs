@@ -1,19 +1,29 @@
-use chumsky::{combinator::Repeated, prelude::*, recursive};
+use chumsky::{combinator::Repeated, prelude::*};
+
+#[derive(Debug, Clone)]
+pub enum BinaryOperator {
+    ADD,
+    SUB,
+    DIV,
+    MULTIPLY,
+}
+
+#[derive(Debug, Clone)]
+pub enum UnaryOperator {
+    NEGATIVE,
+}
 
 #[derive(Debug)]
 pub enum Expression {
     Num(f64),
     String(String),
     Identifier(String),
-    /// Left, Right
-    Add(Box<Expression>, Box<Expression>),
-    Sub(Box<Expression>, Box<Expression>),
-    Mul(Box<Expression>, Box<Expression>),
-    Div(Box<Expression>, Box<Expression>),
+    Unary(Box<Expression>, UnaryOperator),
+    Binary(Box<Expression>, BinaryOperator, Box<Expression>),
     Negative(Box<Expression>),
     Call(Box<Expression>, Vec<Expression>),
     Array(Vec<Expression>),
-    Function(Option<String>, Vec<String>, Box<Statement>),
+    FunctionExpression(Option<String>, Vec<String>, Box<Statement>),
     /// Object Expression, Element expression
     ElementAccess(Box<Expression>, Box<Expression>),
     /// Key expression, Value expression
@@ -78,6 +88,8 @@ fn number_parser() -> impl Parser<char, Expression, Error = Simple<char>> + Clon
             .then_ignore(just(DOT))
             .then(text::int(10))
             .map(|(s1, s2)| Expression::Num(format!("{s1}.{s2}").parse().unwrap())))
+        .or(text::keyword("NaN").map(|()| Expression::Num(f64::NAN)))
+        .or(text::keyword("Infinity").map(|()| Expression::Num(f64::INFINITY)))
 }
 
 fn string_parser() -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
@@ -170,8 +182,10 @@ fn block_parser(
 fn function_expression_parser(
     stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone,
 ) -> impl Parser<char, Expression, Error = Simple<char>> + Clone {
-    let func_declr_expr = named_function_base_parser(stmt_parser.clone())
-        .map(|((name, args), block)| Expression::Function(Some(name), args, Box::new(block)));
+    let func_declr_expr =
+        named_function_base_parser(stmt_parser.clone()).map(|((name, args), block)| {
+            Expression::FunctionExpression(Some(name), args, Box::new(block))
+        });
 
     let arrow_func_expr = text::ident()
         .separated_by(just(COMMA).padded())
@@ -179,7 +193,7 @@ fn function_expression_parser(
         .padded()
         .then_ignore(just(ARROW))
         .then(block_parser(stmt_parser.clone()).padded())
-        .map(|(args, block)| Expression::Function(None, args, Box::new(block)));
+        .map(|(args, block)| Expression::FunctionExpression(None, args, Box::new(block)));
 
     let unnamed_func_expr = text::keyword(FUNCTION)
         .padded()
@@ -189,7 +203,7 @@ fn function_expression_parser(
                 .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE)),
         )
         .then(stmt_parser.clone().padded())
-        .map(|((_, args), block)| Expression::Function(None, args, Box::new(block)));
+        .map(|((_, args), block)| Expression::FunctionExpression(None, args, Box::new(block)));
 
     choice((func_declr_expr, unnamed_func_expr, arrow_func_expr))
 }
@@ -203,8 +217,8 @@ fn atom_parser(
             .clone()
             .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE)),
         function_expression_parser(stmt_parser),
-        identifier_parser(),
         number_parser(),
+        identifier_parser(),
         string_parser(),
         array_parser(expr_parser.clone()),
         object_parser(expr_parser.clone()),
@@ -236,24 +250,34 @@ fn atom_parser(
         })
 }
 
+fn binary(
+    operator: BinaryOperator,
+) -> impl Fn(Box<Expression>, Box<Expression>) -> Expression + Clone {
+    move |x, y| Expression::Binary(x, operator.clone(), y)
+}
+
+fn unary(operator: UnaryOperator) -> impl Fn(Box<Expression>) -> Expression + Clone {
+    move |x| Expression::Unary(x, operator.clone())
+}
+
 pub fn expr_parser<'a>(
     stmt_parser: impl Parser<char, Statement, Error = Simple<char>> + Clone + 'a,
 ) -> impl Parser<char, Expression, Error = Simple<char>> + Clone + 'a {
     recursive(|expr_parser| {
         let op = |c| just(c).padded();
 
-        let unary = op(MINUS)
+        let unary_negative = op(MINUS)
             .repeated()
             .then(atom_parser(expr_parser, stmt_parser))
-            .foldr(|_op, rhs| Expression::Negative(Box::new(rhs)));
+            .foldr(|_op, rhs| unary(UnaryOperator::NEGATIVE)(Box::new(rhs)));
 
-        let product = unary
+        let product = unary_negative
             .clone()
             .then(
                 op(MULTIPLY)
-                    .to(Expression::Mul as fn(_, _) -> _)
-                    .or(op(DIVIDE).to(Expression::Div as fn(_, _) -> _))
-                    .then(unary)
+                    .to(binary(BinaryOperator::MULTIPLY))
+                    .or(op(DIVIDE).to(binary(BinaryOperator::DIV)))
+                    .then(unary_negative)
                     .repeated(),
             )
             .foldl(|lhs, (op, rhs)| op(Box::new(lhs), Box::new(rhs)));
@@ -262,8 +286,8 @@ pub fn expr_parser<'a>(
             .clone()
             .then(
                 op(PLUS)
-                    .to(Expression::Add as fn(_, _) -> _)
-                    .or(op(MINUS).to(Expression::Sub as fn(_, _) -> _))
+                    .to(binary(BinaryOperator::ADD))
+                    .or(op(MINUS).to(binary(BinaryOperator::SUB)))
                     .then(product)
                     .repeated(),
             )
@@ -328,19 +352,21 @@ fn comment_ignore_parser() -> Repeated<impl Parser<char, (), Error = Simple<char
 
 fn stmt_parser() -> impl Parser<char, Statement, Error = Simple<char>> {
     recursive(|stmt_parser| {
+        let expr_end = just(SEMICOLON).or(just('\n'));
+
         let let_stmt = text::keyword(LET)
             .padded()
             .ignore_then(text::ident().padded())
             .then_ignore(just(EQUALS).padded())
             .then(expr_parser(stmt_parser.clone()))
-            .then_ignore(choice((just(SEMICOLON), just('\n'))))
+            .then_ignore(expr_end)
             .map(|(name, expr)| Statement::Let(name, Box::new(expr)));
 
         let assign_stmt = expr_parser(stmt_parser.clone())
             .padded()
             .then_ignore(just(EQUALS).padded())
             .then(expr_parser(stmt_parser.clone()))
-            .then_ignore(choice((just(SEMICOLON), just('\n'))))
+            .then_ignore(expr_end)
             .try_map(|(name, expr), span| match name {
                 Expression::Identifier(_) | Expression::ElementAccess(..) => {
                     Ok(Statement::Assign(Box::new(name), Box::new(expr)))
@@ -354,14 +380,14 @@ fn stmt_parser() -> impl Parser<char, Statement, Error = Simple<char>> {
         let return_stmt = text::keyword(RETURN)
             .padded()
             .ignore_then(expr_parser(stmt_parser.clone()))
-            .then_ignore(just(SEMICOLON).or_not())
+            .then_ignore(expr_end)
             .map(|x| Statement::Return(Box::new(x)));
 
         let func_stmt = named_function_base_parser(stmt_parser.clone())
             .map(|((name, args), block)| Statement::Function(name, args, Box::new(block)));
 
         let expr_stmt = expr_parser(stmt_parser.clone())
-            .then_ignore(just(SEMICOLON))
+            .then_ignore(expr_end)
             .map(|x| Statement::Expression(Box::new(x)));
 
         choice((
@@ -378,10 +404,22 @@ fn stmt_parser() -> impl Parser<char, Statement, Error = Simple<char>> {
     })
 }
 
-pub fn parser() -> impl Parser<char, Vec<Statement>, Error = Simple<char>> {
+#[derive(Debug)]
+pub struct Program {
+    pub statements: Vec<Statement>,
+}
+
+impl Program {
+    fn new(statements: Vec<Statement>) -> Self {
+        Program { statements }
+    }
+}
+
+pub fn program_parser() -> impl Parser<char, Program, Error = Simple<char>> {
     stmt_parser()
         .padded()
         .padded_by(comment_ignore_parser())
         .repeated()
         .then_ignore(end())
+        .map(Program::new)
 }

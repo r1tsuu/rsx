@@ -1,56 +1,28 @@
 use std::process::ExitCode;
 
 use chumsky::Parser;
+use rsx::Rsx;
 mod parser;
+mod rsx;
 
-fn main() -> ExitCode {
+fn main() -> Result<(), ()> {
     let source = "
-let b = function;
+1+1;
 ";
 
-    println!("{:#?}", parser::parser().parse(source));
-    return ExitCode::SUCCESS;
-    // println!(
-    //     "{:#?}",
-    //     Parser::parse_source("new Promise().then(function(x){return 2});")
-    // );
-    // return ExitCode::SUCCESS;
+    let program = parser::program_parser().parse(source).map_err(|err| {
+        eprintln!("ERROR: {:#?}", err);
+    })?;
 
-    // let now = SystemTime::now()
-    //     .duration_since(UNIX_EPOCH)
-    //     .unwrap()
-    //     .as_micros();
+    println!("PROGRAM: {:#?}", program);
 
-    // let source = String::from(
-    //     "
-    // function one() {
-    //         return 1;
-    // }
+    let mut rsx = Rsx::new();
 
-    // function apply(f) {
-    //         return f();
-    // }
+    rsx.execute_program(&program).map_err(|err| {
+        eprintln!("ERROR: {:#?}", err);
+    })?;
 
-    // apply(one) + apply(one);
-    //         ",
-    // ); // 3
+    println!("STACK VALUE: {:#?}", rsx.last_stack());
 
-    // match ExpressionEvaluator::evaluate_source(source) {
-    //     Ok(value) => {
-    //         println!(
-    //             "Executed with value: {}, time: {}",
-    //             value.get_debug_string(),
-    //             SystemTime::now()
-    //                 .duration_since(UNIX_EPOCH)
-    //                 .unwrap()
-    //                 .as_micros()
-    //                 - now
-    //         );
-    //         ExitCode::SUCCESS
-    //     }
-    //     Err(err) => {
-    //         err.print();
-    //         ExitCode::FAILURE
-    //     }
-    // }
+    Ok(())
 }
