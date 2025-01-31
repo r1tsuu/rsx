@@ -1,12 +1,29 @@
 #[cfg(test)]
-use crate::execution_engine::ExpressionEvaluator;
+use crate::parser::program_parser;
 #[cfg(test)]
-use crate::js_value::JSObject;
+use crate::rsx::*;
+
+#[cfg(test)]
+
+fn run_test(source: &str) -> HeapRef {
+    use chumsky::Parser;
+
+    let program = program_parser().parse(source).unwrap();
+    let mut rsx = Rsx::new();
+    rsx.execute_program(program).unwrap();
+
+    Heap::latest()
+}
 
 #[test]
 fn core() {
-    let result = ExpressionEvaluator::evaluate_source("100+200*3+5+(3+5*3+6)").unwrap();
-    assert_eq!(result.cast_to_number().value, 729.0);
+    assert_eq!(
+        run_test("100+200*3+5+(3+5*3+6)")
+            .value()
+            .try_number()
+            .unwrap(),
+        729.0
+    );
 
     let result = ExpressionEvaluator::evaluate_source("100 == 100").unwrap();
     assert_eq!(result.cast_to_boolean().value, true);

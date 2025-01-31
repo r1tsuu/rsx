@@ -13,7 +13,7 @@ pub enum UnaryOperator {
     NEGATIVE,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Num(f64),
     String(String),
@@ -30,7 +30,7 @@ pub enum Expression {
     Object(Vec<(Expression, Expression)>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     Let(String, Box<Expression>),
     Assign(Box<Expression>, Box<Expression>),

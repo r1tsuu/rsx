@@ -1,13 +1,14 @@
 use std::process::ExitCode;
 
 use chumsky::Parser;
-use rsx::Rsx;
+use rsx::{Heap, Rsx};
 mod parser;
 mod rsx;
+mod tests;
 
 fn main() -> Result<(), ()> {
     let source = "
-1+1;
+let x = 1;
 ";
 
     let program = parser::program_parser().parse(source).map_err(|err| {
@@ -18,11 +19,11 @@ fn main() -> Result<(), ()> {
 
     let mut rsx = Rsx::new();
 
-    rsx.execute_program(&program).map_err(|err| {
+    rsx.execute_program(program).map_err(|err| {
         eprintln!("ERROR: {:#?}", err);
     })?;
 
-    println!("STACK VALUE: {:#?}", rsx.last_stack());
+    println!("STACK VALUE: {:#?}", Heap::latest().value());
 
     Ok(())
 }
