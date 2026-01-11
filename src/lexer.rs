@@ -19,6 +19,12 @@ pub enum Token {
     Plus,
     Minus,
     Star,
+    LBrace,
+    RBrace,
+    LBracket,
+    RBracket,
+    Comma,
+    Colon,
     LParen,
     RParen,
     End,
@@ -132,6 +138,14 @@ impl Lexer {
                     self.advance();
                     Ok(Token::Star)
                 }
+                ',' => {
+                    self.advance();
+                    Ok(Token::Comma)
+                }
+                ':' => {
+                    self.advance();
+                    Ok(Token::Colon)
+                }
                 '(' => {
                     self.advance();
                     Ok(Token::LParen)
@@ -139,6 +153,22 @@ impl Lexer {
                 ')' => {
                     self.advance();
                     Ok(Token::RParen)
+                }
+                '{' => {
+                    self.advance();
+                    Ok(Token::LBrace)
+                }
+                '}' => {
+                    self.advance();
+                    Ok(Token::RBrace)
+                }
+                '[' => {
+                    self.advance();
+                    Ok(Token::LBracket)
+                }
+                ']' => {
+                    self.advance();
+                    Ok(Token::RBracket)
                 }
                 _ => Err("Invalid Character".to_string()),
             })
@@ -327,5 +357,146 @@ mod tests {
         assert!(matches!(tokens[3], Token::Star));
         assert!(matches!(tokens[4], Token::Identifier(_)));
         assert!(matches!(tokens[5], Token::End));
+    }
+
+    #[test]
+    fn test_braces() {
+        let source = "{ }";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 3); // {, }, End
+        assert!(matches!(tokens[0], Token::LBrace));
+        assert!(matches!(tokens[1], Token::RBrace));
+        assert!(matches!(tokens[2], Token::End));
+    }
+
+    #[test]
+    fn test_brackets() {
+        let source = "[ ]";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 3); // [, ], End
+        assert!(matches!(tokens[0], Token::LBracket));
+        assert!(matches!(tokens[1], Token::RBracket));
+        assert!(matches!(tokens[2], Token::End));
+    }
+
+    #[test]
+    fn test_comma() {
+        let source = "a, b, c";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 6); // a, ,, b, ,, c, End
+        assert!(matches!(tokens[0], Token::Identifier(_)));
+        assert!(matches!(tokens[1], Token::Comma));
+        assert!(matches!(tokens[2], Token::Identifier(_)));
+        assert!(matches!(tokens[3], Token::Comma));
+        assert!(matches!(tokens[4], Token::Identifier(_)));
+        assert!(matches!(tokens[5], Token::End));
+    }
+
+    #[test]
+    fn test_mixed_brackets_and_braces() {
+        let source = "{[]}";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 5); // {, [, ], }, End
+        assert!(matches!(tokens[0], Token::LBrace));
+        assert!(matches!(tokens[1], Token::LBracket));
+        assert!(matches!(tokens[2], Token::RBracket));
+        assert!(matches!(tokens[3], Token::RBrace));
+        assert!(matches!(tokens[4], Token::End));
+    }
+
+    #[test]
+    fn test_array_like_syntax() {
+        let source = "[1, 2, 3]";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 8); // [, 1, ,, 2, ,, 3, ], End
+        assert!(matches!(tokens[0], Token::LBracket));
+        assert!(matches!(tokens[1], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[2], Token::Comma));
+        assert!(matches!(tokens[3], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[4], Token::Comma));
+        assert!(matches!(tokens[5], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[6], Token::RBracket));
+        assert!(matches!(tokens[7], Token::End));
+    }
+
+    #[test]
+    fn test_object_like_syntax() {
+        let source = "{x: 10, y: 20}";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 10); // {, x, :, 10, ,, y, :, 20, }, End
+        assert!(matches!(tokens[0], Token::LBrace));
+        assert!(matches!(tokens[1], Token::Identifier(_)));
+        assert!(matches!(tokens[2], Token::Colon));
+        assert!(matches!(tokens[3], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[4], Token::Comma));
+        assert!(matches!(tokens[5], Token::Identifier(_)));
+        assert!(matches!(tokens[6], Token::Colon));
+        assert!(matches!(tokens[7], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[8], Token::RBrace));
+        assert!(matches!(tokens[9], Token::End));
+    }
+
+    #[test]
+    fn test_nested_object_syntax() {
+        let source = "{a: {b: 1}}";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 10); // {, a, :, {, b, :, 1, }, }, End
+        assert!(matches!(tokens[0], Token::LBrace));
+        assert!(matches!(tokens[1], Token::Identifier(_)));
+        assert!(matches!(tokens[2], Token::Colon));
+        assert!(matches!(tokens[3], Token::LBrace));
+        assert!(matches!(tokens[4], Token::Identifier(_)));
+        assert!(matches!(tokens[5], Token::Colon));
+        assert!(matches!(tokens[6], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[7], Token::RBrace));
+        assert!(matches!(tokens[8], Token::RBrace));
+        assert!(matches!(tokens[9], Token::End));
+    }
+
+    #[test]
+    fn test_object_with_array() {
+        let source = "{items: [1, 2]}";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 10); // {, items, :, [, 1, ,, 2, ], }, End
+        assert!(matches!(tokens[0], Token::LBrace));
+        assert!(matches!(tokens[1], Token::Identifier(_)));
+        assert!(matches!(tokens[2], Token::Colon));
+        assert!(matches!(tokens[3], Token::LBracket));
+        assert!(matches!(tokens[4], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[5], Token::Comma));
+        assert!(matches!(tokens[6], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[7], Token::RBracket));
+        assert!(matches!(tokens[8], Token::RBrace));
+        assert!(matches!(tokens[9], Token::End));
+    }
+
+    #[test]
+    fn test_empty_object() {
+        let source = "{}";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 3); // {, }, End
+        assert!(matches!(tokens[0], Token::LBrace));
+        assert!(matches!(tokens[1], Token::RBrace));
+        assert!(matches!(tokens[2], Token::End));
+    }
+
+    #[test]
+    fn test_empty_array() {
+        let source = "[]";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 3); // [, ], End
+        assert!(matches!(tokens[0], Token::LBracket));
+        assert!(matches!(tokens[1], Token::RBracket));
+        assert!(matches!(tokens[2], Token::End));
     }
 }

@@ -13,6 +13,20 @@ pub enum JSValue {
 }
 
 impl JSValue {
+    pub fn try_as_number(&self) -> Option<f32> {
+        match self {
+            JSValue::Number(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    pub fn try_as_string(&self) -> Option<&str> {
+        match self {
+            JSValue::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
     pub fn add(&self, other: &JSValue) -> JSValue {
         if let JSValue::Number(self_number) = self
             && let JSValue::Number(other_number) = other
@@ -153,8 +167,6 @@ impl ExecutionContext {
                     }
                     _ => unimplemented!(),
                 }
-
-                unimplemented!()
             }
             Expression::NumericLiteral(numeric) => {
                 self.stack_push(JSValue::Number(numeric.value));
@@ -188,4 +200,93 @@ pub fn evaluate_source(source: &str) -> Result<JSValue, String> {
     }
 
     Ok(ctx.stack_pop())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_evaluate_numeric_literal() {
+        let result = evaluate_source("42;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_evaluate_addition() {
+        let result = evaluate_source("5 + 3;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 8.0);
+    }
+
+    #[test]
+    fn test_evaluate_subtraction() {
+        let result = evaluate_source("10 - 4;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 6.0);
+    }
+
+    #[test]
+    fn test_evaluate_multiplication() {
+        let result = evaluate_source("6 * 7;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_evaluate_division() {
+        let result = evaluate_source("20 / 4;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_evaluate_complex_expression() {
+        let result = evaluate_source("2 + 3 * 4;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 14.0); // 2 + (3 * 4) = 14
+    }
+
+    #[test]
+    fn test_evaluate_parenthesized_expression() {
+        let result = evaluate_source("(5 + 3) * 2;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 16.0); // (5 + 3) * 2 = 16
+    }
+
+    #[test]
+    fn test_evaluate_let_statement() {
+        let result = evaluate_source("let x = 42; x;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_evaluate_let_with_expression() {
+        let result = evaluate_source("let y = 10 + 5; y;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 15.0);
+    }
+
+    #[test]
+    fn test_evaluate_variable_in_expression() {
+        let result = evaluate_source("let x = 10; x + 5;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 15.0);
+    }
+
+    #[test]
+    fn test_evaluate_multiple_variables() {
+        let result = evaluate_source("let a = 5; let b = 3; a * b;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 15.0);
+    }
+
+    #[test]
+    fn test_evaluate_chained_operations() {
+        let result = evaluate_source("1 + 2 + 3;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 6.0);
+    }
+
+    #[test]
+    fn test_evaluate_variable_reassignment() {
+        let result = evaluate_source("let x = 10; let x = 20; x;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 20.0);
+    }
+
+    #[test]
+    fn test_evaluate_complex_with_variables() {
+        let result = evaluate_source("let a = 2; let b = 3; let c = 4; a + b * c;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 14.0); // 2 + (3 * 4) = 14
+    }
 }
