@@ -2,20 +2,20 @@ use std::backtrace::Backtrace;
 
 #[derive(Debug)]
 pub struct ASTError {
-    message: String,
-    // backtrace: Backtrace,
+    pub message: String,
+    pub backtrace: Backtrace,
 }
 
 #[derive(Debug)]
 pub struct JSError {
-    message: String,
-    // backtrace: Backtrace,
+    pub message: String,
+    pub backtrace: Backtrace,
 }
 
 #[derive(Debug)]
 pub struct LexerError {
-    message: String,
-    // backtrace: Backtrace,
+    pub message: String,
+    pub backtrace: Backtrace,
 }
 
 #[derive(Debug)]
@@ -29,21 +29,21 @@ impl EngineError {
     pub fn ast<T: ToString>(message: T) -> Self {
         EngineError::Ast(ASTError {
             message: message.to_string(),
-            // backtrace: Backtrace::capture(),
+            backtrace: Backtrace::capture(),
         })
     }
 
     pub fn js<T: ToString>(message: T) -> Self {
         EngineError::JS(JSError {
             message: message.to_string(),
-            // backtrace: Backtrace::capture(),
+            backtrace: Backtrace::capture(),
         })
     }
 
     pub fn lexer<T: ToString>(message: T) -> Self {
         EngineError::Lexer(LexerError {
             message: message.to_string(),
-            // backtrace: Backtrace::capture(),
+            backtrace: Backtrace::capture(),
         })
     }
 

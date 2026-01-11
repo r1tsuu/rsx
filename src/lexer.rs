@@ -22,6 +22,16 @@ pub enum Token {
     Slash,
     Plus,
     Minus,
+    LessThan,
+    LessThanEqual,
+    GreaterThan,
+    GreaterThanEqual,
+    AndAnd,
+    OrOr,
+    EqualEqual,
+    EqualEqualEqual,
+    BangEqual,
+    BangEqualEqual,
     Star,
     LBrace,
     RBrace,
@@ -116,6 +126,15 @@ impl Lexer {
         Ok(Token::NumericLiteral(NumericLiteralToken { value: parsed }))
     }
 
+    fn match_char(&mut self, expected: char) -> bool {
+        self.peek()
+            .map(|char| char == expected)
+            .inspect(|_| {
+                self.advance();
+            })
+            .unwrap_or(false)
+    }
+
     fn next_token(&mut self) -> Result<Token, EngineError> {
         self.peek()
             .map(|character| match character {
@@ -124,10 +143,6 @@ impl Lexer {
                 ';' => {
                     self.advance();
                     Ok(Token::Semicolon)
-                }
-                '=' => {
-                    self.advance();
-                    Ok(Token::Equal)
                 }
                 '/' => {
                     self.advance();
@@ -180,6 +195,61 @@ impl Lexer {
                 ']' => {
                     self.advance();
                     Ok(Token::RBracket)
+                }
+                '=' => {
+                    self.advance();
+                    if self.match_char('=') {
+                        if self.match_char('=') {
+                            return Ok(Token::EqualEqualEqual);
+                        }
+
+                        return Ok(Token::EqualEqual);
+                    }
+
+                    Ok(Token::Equal)
+                }
+                '!' => {
+                    self.advance();
+                    if self.match_char('=') {
+                        if self.match_char('=') {
+                            return Ok(Token::BangEqualEqual);
+                        }
+                        return Ok(Token::BangEqual);
+                    }
+
+                    Err(EngineError::lexer(format!("Invalid Bang usage")))
+                }
+                '>' => {
+                    self.advance();
+                    if self.match_char('=') {
+                        return Ok(Token::GreaterThanEqual);
+                    }
+
+                    Ok(Token::GreaterThan)
+                }
+                '<' => {
+                    self.advance();
+                    if self.match_char('=') {
+                        return Ok(Token::LessThanEqual);
+                    }
+
+                    Ok(Token::LessThan)
+                }
+                '&' => {
+                    self.advance();
+                    if self.match_char('&') {
+                        return Ok(Token::AndAnd);
+                    }
+
+                    Err(EngineError::lexer(format!("Invalid And (&) usage")))
+                }
+                '|' => {
+                    self.advance();
+                    if self.match_char('|') {
+                        return Ok(Token::OrOr);
+                    }
+
+                    Err(EngineError::lexer(format!("Invalid Or (|) usage")))
                 }
                 _ => Err(EngineError::lexer(format!(
                     "Invalid character: {}",
@@ -445,6 +515,116 @@ mod tests {
     }
 
     #[test]
+    fn test_equal() {
+        let source = "=";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // =, End
+        assert!(matches!(tokens[0], Token::Equal));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_equal_equal() {
+        let source = "==";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // ==, End
+        assert!(matches!(tokens[0], Token::EqualEqual));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_equal_equal_equal() {
+        let source = "===";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // ===, End
+        assert!(matches!(tokens[0], Token::EqualEqualEqual));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_bang_equal() {
+        let source = "!=";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // !=, End
+        assert!(matches!(tokens[0], Token::BangEqual));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_bang_equal_equal() {
+        let source = "!==";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // !==, End
+        assert!(matches!(tokens[0], Token::BangEqualEqual));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_less_than() {
+        let source = "<";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // <, End
+        assert!(matches!(tokens[0], Token::LessThan));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_less_than_equal() {
+        let source = "<=";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // <=, End
+        assert!(matches!(tokens[0], Token::LessThanEqual));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_more_than() {
+        let source = ">";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // >, End
+        assert!(matches!(tokens[0], Token::GreaterThan));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_more_than_equal() {
+        let source = ">=";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // >=, End
+        assert!(matches!(tokens[0], Token::GreaterThanEqual));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_and_and() {
+        let source = "&&";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // &&, End
+        assert!(matches!(tokens[0], Token::AndAnd));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_or_or() {
+        let source = "||";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // ||, End
+        assert!(matches!(tokens[0], Token::OrOr));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
     fn test_mixed_brackets_and_braces() {
         let source = "{[]}";
         let tokens = Lexer::tokenize(source).unwrap();
@@ -547,5 +727,17 @@ mod tests {
         assert!(matches!(tokens[0], Token::LBracket));
         assert!(matches!(tokens[1], Token::RBracket));
         assert!(matches!(tokens[2], Token::End));
+    }
+
+    #[test]
+    fn test_assignment() {
+        let source = "x = 1";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 4); // x, =, 1, End
+        assert!(matches!(tokens[0], Token::Identifier(_)));
+        assert!(matches!(tokens[1], Token::Equal));
+        assert!(matches!(tokens[2], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[3], Token::End));
     }
 }

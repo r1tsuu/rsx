@@ -98,14 +98,6 @@ impl ExecutionContext {
         }
     }
 
-    fn get_global_scope(&self) -> &Scope {
-        &self.scopes[0]
-    }
-
-    fn get_current_scope(&self) -> &Scope {
-        self.scopes.last().unwrap()
-    }
-
     fn get_current_scope_mut(&mut self) -> &mut Scope {
         self.scopes.last_mut().unwrap()
     }

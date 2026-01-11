@@ -157,7 +157,6 @@ impl Statement {
 pub struct ASTParser {
     tokens: Vec<Token>,
     pos: usize,
-    inside_block: bool,
 }
 
 impl ASTParser {
@@ -293,7 +292,7 @@ impl ASTParser {
         Ok(expr)
     }
 
-    fn parse_term(&mut self) -> Result<Expression, EngineError> {
+    fn parse_factor(&mut self) -> Result<Expression, EngineError> {
         let mut expr = self.parse_primary()?;
 
         while let Some(token) = self.peek_token()
@@ -310,11 +309,32 @@ impl ASTParser {
         Ok(expr)
     }
 
-    fn parse_expression(&mut self) -> Result<Expression, EngineError> {
-        let mut expr = self.parse_term()?;
+    fn parse_term(&mut self) -> Result<Expression, EngineError> {
+        let mut expr = self.parse_factor()?;
 
         while let Some(token) = self.peek_token()
             && (matches!(token, Token::Plus) || matches!(token, Token::Minus))
+        {
+            self.advance_token();
+
+            expr = Expression::Binary(BinaryExpression {
+                left: Box::new(expr),
+                operator: token,
+                right: Box::new(self.parse_factor()?),
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_comparison(&mut self) -> Result<Expression, EngineError> {
+        let mut expr = self.parse_term()?;
+
+        while let Some(token) = self.peek_token()
+            && (matches!(token, Token::LessThanEqual)
+                || matches!(token, Token::LessThan)
+                || matches!(token, Token::GreaterThan)
+                || matches!(token, Token::GreaterThanEqual))
         {
             self.advance_token();
 
@@ -326,6 +346,85 @@ impl ASTParser {
         }
 
         Ok(expr)
+    }
+
+    fn parse_equality(&mut self) -> Result<Expression, EngineError> {
+        let mut expr = self.parse_comparison()?;
+
+        while let Some(token) = self.peek_token()
+            && (matches!(token, Token::EqualEqual)
+                || matches!(token, Token::EqualEqualEqual)
+                || matches!(token, Token::BangEqual)
+                || matches!(token, Token::BangEqualEqual))
+        {
+            self.advance_token();
+
+            expr = Expression::Binary(BinaryExpression {
+                left: Box::new(expr),
+                operator: token,
+                right: Box::new(self.parse_comparison()?),
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_logical_and(&mut self) -> Result<Expression, EngineError> {
+        let mut expr = self.parse_equality()?;
+
+        while let Some(token) = self.peek_token()
+            && matches!(token, Token::AndAnd)
+        {
+            self.advance_token();
+
+            expr = Expression::Binary(BinaryExpression {
+                left: Box::new(expr),
+                operator: token,
+                right: Box::new(self.parse_equality()?),
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_logical_or(&mut self) -> Result<Expression, EngineError> {
+        let mut expr = self.parse_logical_and()?;
+
+        while let Some(token) = self.peek_token()
+            && matches!(token, Token::OrOr)
+        {
+            self.advance_token();
+
+            expr = Expression::Binary(BinaryExpression {
+                left: Box::new(expr),
+                operator: token,
+                right: Box::new(self.parse_logical_and()?),
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_assigment(&mut self) -> Result<Expression, EngineError> {
+        let mut expr = self.parse_logical_or()?;
+
+        if let Some(Token::Equal) = self.peek_token() {
+            self.advance_token();
+
+            let value = self.parse_assigment()?;
+
+            expr = Expression::Binary(BinaryExpression {
+                left: Box::new(expr),
+                operator: Token::Equal,
+                right: Box::new(value),
+            })
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_expression(&mut self) -> Result<Expression, EngineError> {
+        self.parse_assigment()
     }
 
     fn parse_statement(&mut self) -> Result<Statement, EngineError> {
@@ -431,7 +530,7 @@ impl ASTParser {
                     if matches!(token, Token::RBrace) {
                         self.advance_token();
 
-                        if (self.tokens.len() == self.pos + 1) {
+                        if self.tokens.len() == self.pos + 1 {
                             self.advance_token();
                         }
 
@@ -465,7 +564,7 @@ impl ASTParser {
         }
     }
 
-    pub fn parse_statements(&mut self) -> Result<Vec<Statement>, EngineError> {
+    fn parse_statements(&mut self) -> Result<Vec<Statement>, EngineError> {
         let mut result: Vec<Statement> = vec![];
 
         while let Some(token) = self.peek_token() {
@@ -493,11 +592,7 @@ impl ASTParser {
     }
 
     pub fn parse_from_tokens(tokens: Vec<Token>) -> Result<Vec<Statement>, EngineError> {
-        let mut ast = Self {
-            inside_block: false,
-            pos: 0,
-            tokens,
-        };
+        let mut ast = Self { pos: 0, tokens };
         ast.parse_statements()
     }
 
@@ -585,6 +680,138 @@ mod tests {
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Slash));
         assert!(matches!(*expr.left, Expression::NumericLiteral(_)));
+        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_equal_equal() {
+        let result = ASTParser::parse_from_source("a == b;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::EqualEqual));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::Identifier(_)));
+    }
+
+    #[test]
+    fn test_parse_equal_equal_equal() {
+        let result = ASTParser::parse_from_source("x === 5;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::EqualEqualEqual));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_bang_equal() {
+        let result = ASTParser::parse_from_source("x != y;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::BangEqual));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::Identifier(_)));
+    }
+
+    #[test]
+    fn test_parse_bang_equal_equal() {
+        let result = ASTParser::parse_from_source("a !== 10;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::BangEqualEqual));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_less_than() {
+        let result = ASTParser::parse_from_source("x < 5;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::LessThan));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_less_than_equal() {
+        let result = ASTParser::parse_from_source("a <= b;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::LessThanEqual));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::Identifier(_)));
+    }
+
+    #[test]
+    fn test_parse_greater_than() {
+        let result = ASTParser::parse_from_source("x > 10;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::GreaterThan));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_greater_than_equal() {
+        let result = ASTParser::parse_from_source("y >= 20;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::GreaterThanEqual));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_and_and() {
+        let result = ASTParser::parse_from_source("a && b;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::AndAnd));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::Identifier(_)));
+    }
+
+    #[test]
+    fn test_parse_or_or() {
+        let result = ASTParser::parse_from_source("x || y;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::OrOr));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
+        assert!(matches!(*expr.right, Expression::Identifier(_)));
+    }
+
+    #[test]
+    fn test_parse_assignment() {
+        let result = ASTParser::parse_from_source("x = 5;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::Equal));
+        assert!(matches!(*expr.left, Expression::Identifier(_)));
         assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
     }
 
