@@ -33,6 +33,23 @@ pub struct ElementAccessExpression {
 }
 
 #[derive(Debug, Clone)]
+pub enum ObjectPropertyName {
+    Name(String),
+    Computed(Box<Expression>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectProperty {
+    pub name: ObjectPropertyName,
+    pub value: Box<Expression>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectLiteralExpression {
+    pub properties: Vec<ObjectProperty>,
+}
+
+#[derive(Debug, Clone)]
 pub struct PropertyAccessExpression {
     pub expression: Box<Expression>,
     pub property: String,
@@ -43,6 +60,7 @@ pub enum Expression {
     Binary(BinaryExpression),
     Identifier(IdentifierExpression),
     NumericLiteral(NumericLiteralExpression),
+    ObjectLiteral(ObjectLiteralExpression),
     ElementAccess(ElementAccessExpression),
     PropertyAccess(PropertyAccessExpression),
     FunctionCall(FunctionCallExpression),
@@ -87,6 +105,13 @@ impl Expression {
     pub fn try_as_function_call(&self) -> Option<&FunctionCallExpression> {
         match self {
             Expression::FunctionCall(expr) => Some(expr),
+            _ => None,
+        }
+    }
+
+    pub fn try_as_object_literal(&self) -> Option<&ObjectLiteralExpression> {
+        match self {
+            Expression::ObjectLiteral(expr) => Some(expr),
             _ => None,
         }
     }
@@ -183,14 +208,99 @@ impl ASTParser {
 
                 Expression::Identifier(IdentifierExpression { name: token.name })
             }
+            Token::LBrace => {
+                self.advance_token();
+                let mut properties: Vec<ObjectProperty> = vec![];
+
+                loop {
+                    let next = self
+                        .advance_token()
+                        .ok_or_else(|| EngineError::ast("Expected a token in object defintion"))?;
+
+                    if matches!(next, Token::RBrace) {
+                        break;
+                    }
+
+                    let name: ObjectPropertyName;
+
+                    if let Token::Identifier(identifier) = next {
+                        name = ObjectPropertyName::Name(identifier.name);
+                    } else if matches!(next, Token::LBracket) {
+                        name = ObjectPropertyName::Computed(Box::new(self.parse_expression()?));
+
+                        self.advance_token()
+                            .ok_or_else(|| {
+                                EngineError::ast("Expected RBracket in computed property name")
+                            })
+                            .and_then(|token| {
+                                if matches!(token, Token::RBracket) {
+                                    Ok(())
+                                } else {
+                                    Err(EngineError::ast(format!(
+                                        "Expected RBracket in computed property name, got: {:#?}",
+                                        token
+                                    )))
+                                }
+                            })?;
+                    } else {
+                        return Err(EngineError::ast(format!(
+                            "Expected either an identifier or a computed property starting with RBracket in object definition, got: {:#?}",
+                            next
+                        )));
+                    }
+
+                    let next = self
+                        .advance_token()
+                        .ok_or_else(|| EngineError::ast("Expected a token in object defintion"))?;
+
+                    if !matches!(next, Token::Colon) {
+                        return Err(EngineError::ast(format!(
+                            "Expected Colon  in object definition after ObjectPropertyName, got: {:#?}",
+                            next
+                        )));
+                    }
+
+                    let property = ObjectProperty {
+                        name,
+                        value: Box::new(self.parse_expression()?),
+                    };
+
+                    let next = self
+                        .peek_token()
+                        .ok_or_else(|| EngineError::ast("Expected a token in object defintion"))?;
+
+                    if matches!(next, Token::Comma) {
+                        self.advance_token();
+                    } else if !matches!(next, Token::RBrace) {
+                        return Err(EngineError::ast(format!(
+                            "
+                    Expected Comma or RBrace in object definition after property, got: {:#?}
+                    ",
+                            next
+                        )));
+                    }
+
+                    properties.push(property);
+                }
+
+                Expression::ObjectLiteral(ObjectLiteralExpression { properties })
+            }
             Token::LParen => {
                 self.advance_token();
                 let expression = self.parse_expression()?;
 
-                let next = self.peek_token().unwrap();
-                if !matches!(next, Token::RParen) {
-                    panic!("Must match")
-                }
+                self.peek_token()
+                    .ok_or_else(|| EngineError::ast("Expected a token after LParent"))
+                    .and_then(|next| {
+                        if matches!(next, Token::RParen) {
+                            Ok(())
+                        } else {
+                            Err(EngineError::ast(format!(
+                                "Expected RParen after expression end, got: {next:#?}"
+                            )))
+                        }
+                    })?;
+
                 self.advance_token();
 
                 expression
@@ -605,7 +715,7 @@ impl ASTParser {
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::{ASTParser, Expression},
+        ast::{ASTParser, Expression, ObjectPropertyName},
         lexer::Token,
     };
 
@@ -1407,5 +1517,133 @@ mod tests {
         assert!(matches!(binary.operator, Token::Plus));
         assert!(matches!(*binary.left, Expression::FunctionCall(_)));
         assert!(matches!(*binary.right, Expression::FunctionCall(_)));
+    }
+
+    #[test]
+    fn test_parse_empty_object_literal() {
+        let result = ASTParser::parse_from_source("({});").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let obj = stmt.expression.try_as_object_literal().unwrap();
+        assert_eq!(obj.properties.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_object_literal_single_property() {
+        let result = ASTParser::parse_from_source("({x: 1});").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let obj = stmt.expression.try_as_object_literal().unwrap();
+        assert_eq!(obj.properties.len(), 1);
+
+        let prop = &obj.properties[0];
+        assert!(matches!(prop.name, ObjectPropertyName::Name(_)));
+        if let ObjectPropertyName::Name(name) = &prop.name {
+            assert_eq!(name, "x");
+        }
+        assert!(matches!(*prop.value, Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_object_literal_multiple_properties() {
+        let result = ASTParser::parse_from_source("({x: 1, y: 2, z: 3});").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let obj = stmt.expression.try_as_object_literal().unwrap();
+        assert_eq!(obj.properties.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_object_literal_identifier_values() {
+        let result = ASTParser::parse_from_source("({x: a, y: b});").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let obj = stmt.expression.try_as_object_literal().unwrap();
+        assert_eq!(obj.properties.len(), 2);
+
+        assert!(matches!(
+            *obj.properties[0].value,
+            Expression::Identifier(_)
+        ));
+        assert!(matches!(
+            *obj.properties[1].value,
+            Expression::Identifier(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_object_literal_expression_values() {
+        let result = ASTParser::parse_from_source("({x: a + 1, y: b * 2});").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let obj = stmt.expression.try_as_object_literal().unwrap();
+        assert_eq!(obj.properties.len(), 2);
+
+        assert!(matches!(*obj.properties[0].value, Expression::Binary(_)));
+        assert!(matches!(*obj.properties[1].value, Expression::Binary(_)));
+    }
+
+    #[test]
+    fn test_parse_object_literal_computed_property() {
+        let result = ASTParser::parse_from_source("({[key]: value});").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let obj = stmt.expression.try_as_object_literal().unwrap();
+        assert_eq!(obj.properties.len(), 1);
+
+        let prop = &obj.properties[0];
+        assert!(matches!(prop.name, ObjectPropertyName::Computed(_)));
+        if let ObjectPropertyName::Computed(expr) = &prop.name {
+            assert!(matches!(**expr, Expression::Identifier(_)));
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_object_literal() {
+        let result = ASTParser::parse_from_source("({a: {b: 1}});").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let obj = stmt.expression.try_as_object_literal().unwrap();
+        assert_eq!(obj.properties.len(), 1);
+
+        let inner_obj = obj.properties[0].value.try_as_object_literal().unwrap();
+        assert_eq!(inner_obj.properties.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_object_literal_in_expression() {
+        let result = ASTParser::parse_from_source("({x: 1}).x;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let prop_access = stmt.expression.try_as_property_access().unwrap();
+
+        assert_eq!(prop_access.property, "x");
+        assert!(matches!(
+            *prop_access.expression,
+            Expression::ObjectLiteral(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_object_literal_with_function_call_value() {
+        let result = ASTParser::parse_from_source("({x: foo()});").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let obj = stmt.expression.try_as_object_literal().unwrap();
+        assert_eq!(obj.properties.len(), 1);
+
+        assert!(matches!(
+            *obj.properties[0].value,
+            Expression::FunctionCall(_)
+        ));
     }
 }
