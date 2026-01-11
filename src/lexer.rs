@@ -30,6 +30,7 @@ pub enum Token {
     LParen,
     RParen,
     End,
+    Dot,
 }
 
 impl Token {
@@ -131,6 +132,10 @@ impl Lexer {
                 '+' => {
                     self.advance();
                     Ok(Token::Plus)
+                }
+                '.' => {
+                    self.advance();
+                    Ok(Token::Dot)
                 }
                 '-' => {
                     self.advance();
@@ -398,6 +403,18 @@ mod tests {
         assert!(matches!(tokens[3], Token::Comma));
         assert!(matches!(tokens[4], Token::Identifier(_)));
         assert!(matches!(tokens[5], Token::End));
+    }
+
+    #[test]
+    fn test_dot() {
+        let source = "obj.prop";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 4); // obj, ., prop, End
+        assert!(matches!(tokens[0], Token::Identifier(_)));
+        assert!(matches!(tokens[1], Token::Dot));
+        assert!(matches!(tokens[2], Token::Identifier(_)));
+        assert!(matches!(tokens[3], Token::End));
     }
 
     #[test]

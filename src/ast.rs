@@ -3,35 +3,42 @@ use crate::{
     lexer::{Lexer, Token},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryExpression {
     pub left: Box<Expression>,
     pub operator: Token,
     pub right: Box<Expression>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IdentifierExpression {
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NumericLiteralExpression {
     pub value: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ElementAccessExpression {
     pub expression: Box<Expression>,
     pub element: Box<Expression>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct PropertyAccessExpression {
+    pub expression: Box<Expression>,
+    pub property: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Expression {
     Binary(BinaryExpression),
     Identifier(IdentifierExpression),
     NumericLiteral(NumericLiteralExpression),
     ElementAccess(ElementAccessExpression),
+    PropertyAccess(PropertyAccessExpression),
 }
 
 impl Expression {
@@ -62,17 +69,27 @@ impl Expression {
             _ => None,
         }
     }
+
+    pub fn try_as_property_access(&self) -> Option<&PropertyAccessExpression> {
+        match self {
+            Expression::PropertyAccess(expr) => Some(expr),
+            _ => None,
+        }
+    }
 }
 
+#[derive(Debug, Clone)]
 pub struct ExpressionStatement {
     pub expression: Box<Expression>,
 }
 
+#[derive(Debug, Clone)]
 pub struct LetStatement {
     pub name: String,
     pub value: Box<Expression>,
 }
 
+#[derive(Debug, Clone)]
 pub enum Statement {
     Expression(ExpressionStatement),
     Let(LetStatement),
@@ -94,6 +111,7 @@ impl Statement {
     }
 }
 
+#[derive(Clone)]
 pub struct ASTParser {
     tokens: Vec<Token>,
     pos: usize,
@@ -110,10 +128,10 @@ impl ASTParser {
         token
     }
 
-    fn parse_primary(&mut self) -> Expression {
+    fn parse_primary(&mut self) -> Result<Expression, EngineError> {
         let token = self.peek_token().unwrap();
 
-        match token {
+        let mut expr = match token {
             Token::NumericLiteral(token) => {
                 self.advance_token();
                 Expression::NumericLiteral(NumericLiteralExpression { value: token.value })
@@ -125,7 +143,7 @@ impl ASTParser {
             }
             Token::LParen => {
                 self.advance_token();
-                let expression = self.parse_expression();
+                let expression = self.parse_expression()?;
 
                 let next = self.peek_token().unwrap();
                 if !matches!(next, Token::RParen) {
@@ -136,11 +154,61 @@ impl ASTParser {
                 expression
             }
             _ => todo!("asd"),
+        };
+
+        let mut clone = self.clone();
+
+        while let Some(token) = clone.peek_token() {
+            match token {
+                Token::LBracket => {
+                    clone.advance_token();
+                    let element = clone.parse_expression()?;
+                    let next = clone.advance_token();
+                    if let Some(token) = &next
+                        && matches!(token, Token::RBracket)
+                    {
+                        expr = Expression::ElementAccess(ElementAccessExpression {
+                            expression: Box::new(expr),
+                            element: Box::new(element),
+                        });
+                        self.pos = clone.pos;
+                    } else {
+                        return Err(EngineError::ast(format!(
+                            "Expected RBracket for ElementAccessExpression, got: {:#?}",
+                            next
+                        )));
+                    }
+                }
+                Token::Dot => {
+                    clone.advance_token();
+                    let next = clone.advance_token();
+
+                    if let Some(token) = &next
+                        && let Token::Identifier(identifier) = token
+                    {
+                        expr = Expression::PropertyAccess(PropertyAccessExpression {
+                            expression: Box::new(expr),
+                            property: identifier.name.clone(),
+                        });
+                        self.pos = clone.pos;
+                    } else {
+                        return Err(EngineError::ast(format!(
+                            "Expected Identifier for PropertyAccessExpression, got: {:#?}",
+                            next
+                        )));
+                    }
+                }
+                _ => {
+                    break;
+                }
+            }
         }
+
+        Ok(expr)
     }
 
-    fn parse_term(&mut self) -> Expression {
-        let mut expr = self.parse_primary();
+    fn parse_term(&mut self) -> Result<Expression, EngineError> {
+        let mut expr = self.parse_primary()?;
 
         while let Some(token) = self.peek_token()
             && (matches!(token, Token::Slash) || matches!(token, Token::Star))
@@ -149,15 +217,15 @@ impl ASTParser {
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator: token,
-                right: Box::new(self.parse_primary()),
+                right: Box::new(self.parse_primary()?),
             });
         }
 
-        expr
+        Ok(expr)
     }
 
-    fn parse_expression(&mut self) -> Expression {
-        let mut expr = self.parse_term();
+    fn parse_expression(&mut self) -> Result<Expression, EngineError> {
+        let mut expr = self.parse_term()?;
 
         while let Some(token) = self.peek_token()
             && (matches!(token, Token::Plus) || matches!(token, Token::Minus))
@@ -167,11 +235,11 @@ impl ASTParser {
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
                 operator: token,
-                right: Box::new(self.parse_term()),
+                right: Box::new(self.parse_term()?),
             });
         }
 
-        expr
+        Ok(expr)
     }
 
     fn parse_statement(&mut self) -> Result<Statement, EngineError> {
@@ -184,7 +252,7 @@ impl ASTParser {
                     self.advance_token();
                     Ok(Statement::Let(LetStatement {
                         name: identifier_token.name,
-                        value: Box::new(self.parse_expression()),
+                        value: Box::new(self.parse_expression()?),
                     }))
                 } else {
                     Err(EngineError::ast(
@@ -193,7 +261,7 @@ impl ASTParser {
                 }
             }
             _ => Ok(Statement::Expression(ExpressionStatement {
-                expression: Box::new(self.parse_expression()),
+                expression: Box::new(self.parse_expression()?),
             })),
         }
     }
@@ -212,7 +280,10 @@ impl ASTParser {
             if let Some(token) = ast.peek_token()
                 && !matches!(token, Token::Semicolon)
             {
-                return Err(EngineError::ast("Expected a semicolon"));
+                return Err(EngineError::ast(format!(
+                    "Expected a semicolon, got: {:?}",
+                    token
+                )));
             }
 
             ast.advance_token();
@@ -469,6 +540,16 @@ mod tests {
     }
 
     #[test]
+    fn test_error_parse_element_access_expression() {
+        let result = ASTParser::parse_from_source("arr[i + 1;").unwrap_err();
+        assert!(
+            result
+                .message()
+                .contains("Expected RBracket for ElementAccessExpression")
+        );
+    }
+
+    #[test]
     fn test_parse_chained_element_access() {
         let result = ASTParser::parse_from_source("matrix[0][1];").unwrap();
         assert_eq!(result.len(), 1);
@@ -487,6 +568,16 @@ mod tests {
     }
 
     #[test]
+    fn test_error_parse_property_access() {
+        let result = ASTParser::parse_from_source("obj.123;").unwrap_err();
+        assert!(
+            result
+                .message()
+                .contains("Expected Identifier for PropertyAccessExpression")
+        );
+    }
+
+    #[test]
     fn test_parse_element_access_in_expression() {
         let result = ASTParser::parse_from_source("arr[0] + arr[1];").unwrap();
         assert_eq!(result.len(), 1);
@@ -497,5 +588,97 @@ mod tests {
         assert!(matches!(expr.operator, Token::Plus));
         assert!(matches!(*expr.left, Expression::ElementAccess(_)));
         assert!(matches!(*expr.right, Expression::ElementAccess(_)));
+    }
+
+    #[test]
+    fn test_parse_property_access() {
+        let result = ASTParser::parse_from_source("obj.prop;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_property_access().unwrap();
+
+        let obj_id = expr.expression.try_as_identifier().unwrap();
+        assert_eq!(obj_id.name, "obj");
+        assert_eq!(expr.property, "prop");
+    }
+
+    #[test]
+    fn test_parse_chained_property_access() {
+        let result = ASTParser::parse_from_source("obj.a.b;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_property_access().unwrap();
+
+        assert_eq!(expr.property, "b");
+
+        let inner = expr.expression.try_as_property_access().unwrap();
+        assert_eq!(inner.property, "a");
+        let obj = inner.expression.try_as_identifier().unwrap();
+        assert_eq!(obj.name, "obj");
+    }
+
+    #[test]
+    fn test_parse_property_access_in_expression() {
+        let result = ASTParser::parse_from_source("obj.x + obj.y;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+
+        assert!(matches!(expr.operator, Token::Plus));
+        assert!(matches!(*expr.left, Expression::PropertyAccess(_)));
+        assert!(matches!(*expr.right, Expression::PropertyAccess(_)));
+    }
+
+    #[test]
+    fn test_parse_property_access_after_element_access() {
+        let result = ASTParser::parse_from_source("arr[0].prop;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_property_access().unwrap();
+
+        assert_eq!(expr.property, "prop");
+        let elem = expr.expression.try_as_element_access().unwrap();
+        elem.expression.try_as_identifier().unwrap();
+        elem.element.try_as_numeric_literal().unwrap();
+    }
+
+    #[test]
+    fn test_parse_element_access_after_property_access() {
+        let result = ASTParser::parse_from_source("obj.arr[0];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_element_access().unwrap();
+
+        let num = expr.element.try_as_numeric_literal().unwrap();
+        assert_eq!(num.value, 0.0);
+
+        let prop = expr.expression.try_as_property_access().unwrap();
+        assert_eq!(prop.property, "arr");
+        let obj = prop.expression.try_as_identifier().unwrap();
+        assert_eq!(obj.name, "obj");
+    }
+
+    #[test]
+    fn test_parse_complex_member_access() {
+        let result = ASTParser::parse_from_source("obj.items[0].name;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_property_access().unwrap();
+
+        assert_eq!(expr.property, "name");
+
+        let elem = expr.expression.try_as_element_access().unwrap();
+        elem.element.try_as_numeric_literal().unwrap();
+
+        let prop = elem.expression.try_as_property_access().unwrap();
+        assert_eq!(prop.property, "items");
+        let obj = prop.expression.try_as_identifier().unwrap();
+        assert_eq!(obj.name, "obj");
     }
 }
