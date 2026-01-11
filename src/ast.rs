@@ -21,6 +21,12 @@ pub struct NumericLiteralExpression {
 }
 
 #[derive(Debug, Clone)]
+pub struct FunctionCallExpression {
+    pub function: Box<Expression>,
+    pub arguments: Vec<Expression>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ElementAccessExpression {
     pub expression: Box<Expression>,
     pub element: Box<Expression>,
@@ -39,6 +45,7 @@ pub enum Expression {
     NumericLiteral(NumericLiteralExpression),
     ElementAccess(ElementAccessExpression),
     PropertyAccess(PropertyAccessExpression),
+    FunctionCall(FunctionCallExpression),
 }
 
 impl Expression {
@@ -73,6 +80,13 @@ impl Expression {
     pub fn try_as_property_access(&self) -> Option<&PropertyAccessExpression> {
         match self {
             Expression::PropertyAccess(expr) => Some(expr),
+            _ => None,
+        }
+    }
+
+    pub fn try_as_function_call(&self) -> Option<&FunctionCallExpression> {
+        match self {
+            Expression::FunctionCall(expr) => Some(expr),
             _ => None,
         }
     }
@@ -205,7 +219,6 @@ impl ASTParser {
                             expression: Box::new(expr),
                             element: Box::new(element),
                         });
-                        self.pos = clone.pos;
                     } else {
                         return Err(EngineError::ast(format!(
                             "Expected RBracket for ElementAccessExpression, got: {:#?}",
@@ -224,7 +237,6 @@ impl ASTParser {
                             expression: Box::new(expr),
                             property: identifier.name.clone(),
                         });
-                        self.pos = clone.pos;
                     } else {
                         return Err(EngineError::ast(format!(
                             "Expected Identifier for PropertyAccessExpression, got: {:#?}",
@@ -232,11 +244,51 @@ impl ASTParser {
                         )));
                     }
                 }
+                Token::LParen => {
+                    clone.advance_token();
+                    let mut arguments: Vec<Expression> = vec![];
+
+                    if clone
+                        .peek_token()
+                        .map(|token| !matches!(token, Token::RParen))
+                        .unwrap_or(true)
+                    {
+                        loop {
+                            arguments.push(clone.parse_expression()?);
+
+                            let next_token = clone.advance_token().ok_or_else(|| {
+                                EngineError::ast("Expected a token in function call arguments")
+                            })?;
+
+                            if matches!(next_token, Token::Comma) {
+                                continue;
+                            }
+
+                            if matches!(next_token, Token::RParen) {
+                                break;
+                            }
+
+                            return Err(EngineError::ast(format!(
+                                "Expected Comma or RParen in function call arguments, got: {:#?}",
+                                next_token
+                            )));
+                        }
+                    } else {
+                        clone.advance_token();
+                    }
+
+                    expr = Expression::FunctionCall(FunctionCallExpression {
+                        function: Box::new(expr),
+                        arguments,
+                    })
+                }
                 _ => {
                     break;
                 }
             }
         }
+
+        self.pos = clone.pos;
 
         Ok(expr)
     }
@@ -1012,5 +1064,121 @@ mod tests {
         assert_eq!(func.arguments[0], "a");
         assert_eq!(func.arguments[1], "b");
         assert_eq!(func.arguments[2], "c");
+    }
+
+    #[test]
+    fn test_parse_function_call_no_args() {
+        let result = ASTParser::parse_from_source("foo();").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let call = stmt.expression.try_as_function_call().unwrap();
+
+        let func_id = call.function.try_as_identifier().unwrap();
+        assert_eq!(func_id.name, "foo");
+        assert_eq!(call.arguments.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_function_call_single_arg() {
+        let result = ASTParser::parse_from_source("add(5);").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let call = stmt.expression.try_as_function_call().unwrap();
+
+        let func_id = call.function.try_as_identifier().unwrap();
+        assert_eq!(func_id.name, "add");
+        assert_eq!(call.arguments.len(), 1);
+
+        let arg = call.arguments[0].try_as_numeric_literal().unwrap();
+        assert_eq!(arg.value, 5.0);
+    }
+
+    #[test]
+    fn test_parse_function_call_multiple_args() {
+        let result = ASTParser::parse_from_source("add(1, 2, 3);").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let call = stmt.expression.try_as_function_call().unwrap();
+
+        assert_eq!(call.arguments.len(), 3);
+        assert!(matches!(call.arguments[0], Expression::NumericLiteral(_)));
+        assert!(matches!(call.arguments[1], Expression::NumericLiteral(_)));
+        assert!(matches!(call.arguments[2], Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_function_call_with_expression_args() {
+        let result = ASTParser::parse_from_source("calc(x + 1, y * 2);").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let call = stmt.expression.try_as_function_call().unwrap();
+
+        assert_eq!(call.arguments.len(), 2);
+        assert!(matches!(call.arguments[0], Expression::Binary(_)));
+        assert!(matches!(call.arguments[1], Expression::Binary(_)));
+    }
+
+    #[test]
+    fn test_parse_nested_function_call() {
+        let result = ASTParser::parse_from_source("outer(inner());").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let outer_call = stmt.expression.try_as_function_call().unwrap();
+
+        let outer_id = outer_call.function.try_as_identifier().unwrap();
+        assert_eq!(outer_id.name, "outer");
+        assert_eq!(outer_call.arguments.len(), 1);
+
+        let inner_call = outer_call.arguments[0].try_as_function_call().unwrap();
+        let inner_id = inner_call.function.try_as_identifier().unwrap();
+        assert_eq!(inner_id.name, "inner");
+    }
+
+    #[test]
+    fn test_parse_function_call_on_property() {
+        let result = ASTParser::parse_from_source("obj.method();").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let call = stmt.expression.try_as_function_call().unwrap();
+
+        let prop = call.function.try_as_property_access().unwrap();
+        assert_eq!(prop.property, "method");
+
+        let obj = prop.expression.try_as_identifier().unwrap();
+        assert_eq!(obj.name, "obj");
+    }
+
+    #[test]
+    fn test_parse_chained_function_calls() {
+        let result = ASTParser::parse_from_source("foo()();").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let outer_call = stmt.expression.try_as_function_call().unwrap();
+
+        assert_eq!(outer_call.arguments.len(), 0);
+
+        let inner_call = outer_call.function.try_as_function_call().unwrap();
+        let func_id = inner_call.function.try_as_identifier().unwrap();
+        assert_eq!(func_id.name, "foo");
+    }
+
+    #[test]
+    fn test_parse_function_call_in_expression() {
+        let result = ASTParser::parse_from_source("foo() + bar();").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let binary = stmt.expression.try_as_binary().unwrap();
+
+        assert!(matches!(binary.operator, Token::Plus));
+        assert!(matches!(*binary.left, Expression::FunctionCall(_)));
+        assert!(matches!(*binary.right, Expression::FunctionCall(_)));
     }
 }
