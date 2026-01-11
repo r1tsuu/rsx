@@ -50,6 +50,11 @@ pub struct ObjectLiteralExpression {
 }
 
 #[derive(Debug, Clone)]
+pub struct ArrayLiteralExpression {
+    pub elements: Vec<Expression>,
+}
+
+#[derive(Debug, Clone)]
 pub struct PropertyAccessExpression {
     pub expression: Box<Expression>,
     pub property: String,
@@ -61,6 +66,7 @@ pub enum Expression {
     Identifier(IdentifierExpression),
     NumericLiteral(NumericLiteralExpression),
     ObjectLiteral(ObjectLiteralExpression),
+    ArrayLiteral(ArrayLiteralExpression),
     ElementAccess(ElementAccessExpression),
     PropertyAccess(PropertyAccessExpression),
     FunctionCall(FunctionCallExpression),
@@ -112,6 +118,13 @@ impl Expression {
     pub fn try_as_object_literal(&self) -> Option<&ObjectLiteralExpression> {
         match self {
             Expression::ObjectLiteral(expr) => Some(expr),
+            _ => None,
+        }
+    }
+
+    pub fn try_as_array_literal(&self) -> Option<&ArrayLiteralExpression> {
+        match self {
+            Expression::ArrayLiteral(expr) => Some(expr),
             _ => None,
         }
     }
@@ -208,6 +221,43 @@ impl ASTParser {
 
                 Expression::Identifier(IdentifierExpression { name: token.name })
             }
+            Token::LBracket => {
+                self.advance_token();
+                let mut elements: Vec<Expression> = vec![];
+
+                loop {
+                    let next = self
+                        .peek_token()
+                        .ok_or_else(|| EngineError::ast("Expected a token in array defintion"))?;
+
+                    if matches!(next, Token::RBracket) {
+                        self.advance_token();
+                        break;
+                    }
+
+                    elements.push(self.parse_expression()?);
+
+                    let next = self
+                        .peek_token()
+                        .ok_or_else(|| EngineError::ast("Expected a token in array defintion"))?;
+
+                    if matches!(next, Token::Comma) {
+                        self.advance_token();
+                        continue;
+                    }
+
+                    if !matches!(next, Token::RBracket) {
+                        return Err(EngineError::ast(format!(
+                            "
+                      Expected either COMMA or RBracket after array element, got: {:#?}
+                      ",
+                            next
+                        )));
+                    }
+                }
+
+                Expression::ArrayLiteral(ArrayLiteralExpression { elements })
+            }
             Token::LBrace => {
                 self.advance_token();
                 let mut properties: Vec<ObjectProperty> = vec![];
@@ -269,9 +319,14 @@ impl ASTParser {
                         .peek_token()
                         .ok_or_else(|| EngineError::ast("Expected a token in object defintion"))?;
 
+                    properties.push(property);
+
                     if matches!(next, Token::Comma) {
                         self.advance_token();
-                    } else if !matches!(next, Token::RBrace) {
+                        continue;
+                    }
+
+                    if !matches!(next, Token::RBrace) {
                         return Err(EngineError::ast(format!(
                             "
                     Expected Comma or RBrace in object definition after property, got: {:#?}
@@ -279,8 +334,6 @@ impl ASTParser {
                             next
                         )));
                     }
-
-                    properties.push(property);
                 }
 
                 Expression::ObjectLiteral(ObjectLiteralExpression { properties })
@@ -1645,5 +1698,129 @@ mod tests {
             *obj.properties[0].value,
             Expression::FunctionCall(_)
         ));
+    }
+
+    #[test]
+    fn test_parse_empty_array_literal() {
+        let result = ASTParser::parse_from_source("[];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let arr = stmt.expression.try_as_array_literal().unwrap();
+        assert_eq!(arr.elements.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_array_literal_single_element() {
+        let result = ASTParser::parse_from_source("[1];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let arr = stmt.expression.try_as_array_literal().unwrap();
+        assert_eq!(arr.elements.len(), 1);
+
+        let elem = arr.elements[0].try_as_numeric_literal().unwrap();
+        assert_eq!(elem.value, 1.0);
+    }
+
+    #[test]
+    fn test_parse_array_literal_multiple_elements() {
+        let result = ASTParser::parse_from_source("[1, 2, 3];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let arr = stmt.expression.try_as_array_literal().unwrap();
+        assert_eq!(arr.elements.len(), 3);
+
+        assert!(matches!(arr.elements[0], Expression::NumericLiteral(_)));
+        assert!(matches!(arr.elements[1], Expression::NumericLiteral(_)));
+        assert!(matches!(arr.elements[2], Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_array_literal_identifier_elements() {
+        let result = ASTParser::parse_from_source("[a, b, c];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let arr = stmt.expression.try_as_array_literal().unwrap();
+        assert_eq!(arr.elements.len(), 3);
+
+        assert!(matches!(arr.elements[0], Expression::Identifier(_)));
+        assert!(matches!(arr.elements[1], Expression::Identifier(_)));
+        assert!(matches!(arr.elements[2], Expression::Identifier(_)));
+    }
+
+    #[test]
+    fn test_parse_array_literal_expression_elements() {
+        let result = ASTParser::parse_from_source("[a + 1, b * 2];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let arr = stmt.expression.try_as_array_literal().unwrap();
+        assert_eq!(arr.elements.len(), 2);
+
+        assert!(matches!(arr.elements[0], Expression::Binary(_)));
+        assert!(matches!(arr.elements[1], Expression::Binary(_)));
+    }
+
+    #[test]
+    fn test_parse_nested_array_literal() {
+        let result = ASTParser::parse_from_source("[[1, 2], [3, 4]];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let arr = stmt.expression.try_as_array_literal().unwrap();
+        assert_eq!(arr.elements.len(), 2);
+
+        let inner1 = arr.elements[0].try_as_array_literal().unwrap();
+        assert_eq!(inner1.elements.len(), 2);
+
+        let inner2 = arr.elements[1].try_as_array_literal().unwrap();
+        assert_eq!(inner2.elements.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_array_literal_in_expression() {
+        let result = ASTParser::parse_from_source("[1, 2][0];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let elem_access = stmt.expression.try_as_element_access().unwrap();
+
+        let num = elem_access.element.try_as_numeric_literal().unwrap();
+        assert_eq!(num.value, 0.0);
+
+        assert!(matches!(
+            *elem_access.expression,
+            Expression::ArrayLiteral(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_array_literal_with_function_call() {
+        let result = ASTParser::parse_from_source("[foo(), bar()];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let arr = stmt.expression.try_as_array_literal().unwrap();
+        assert_eq!(arr.elements.len(), 2);
+
+        assert!(matches!(arr.elements[0], Expression::FunctionCall(_)));
+        assert!(matches!(arr.elements[1], Expression::FunctionCall(_)));
+    }
+
+    #[test]
+    fn test_parse_array_literal_mixed_types() {
+        let result = ASTParser::parse_from_source("[1, a, foo()];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let arr = stmt.expression.try_as_array_literal().unwrap();
+        assert_eq!(arr.elements.len(), 3);
+
+        assert!(matches!(arr.elements[0], Expression::NumericLiteral(_)));
+        assert!(matches!(arr.elements[1], Expression::Identifier(_)));
+        assert!(matches!(arr.elements[2], Expression::FunctionCall(_)));
     }
 }
