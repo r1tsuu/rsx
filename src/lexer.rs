@@ -1,0 +1,331 @@
+#[derive(Debug, Clone)]
+pub struct IdentifierToken {
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NumericLiteralToken {
+    pub value: f32,
+}
+
+#[derive(Debug, Clone)]
+pub enum Token {
+    Identifier(IdentifierToken),
+    NumericLiteral(NumericLiteralToken),
+    Equal,
+    LetKeyword,
+    Semicolon,
+    Slash,
+    Plus,
+    Minus,
+    Star,
+    LParen,
+    RParen,
+    End,
+}
+
+impl Token {
+    pub fn try_as_identifier(&self) -> Option<&IdentifierToken> {
+        if let Token::Identifier(t) = self {
+            Some(t)
+        } else {
+            None
+        }
+    }
+
+    pub fn try_as_numeric_literal(&self) -> Option<&NumericLiteralToken> {
+        if let Token::NumericLiteral(t) = self {
+            Some(t)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct Lexer {
+    pos: usize,
+    source: Vec<char>,
+}
+
+impl Lexer {
+    fn peek(&self) -> Option<char> {
+        self.source.get(self.pos).copied()
+    }
+
+    fn advance(&mut self) -> Option<char> {
+        let c = self.peek();
+        self.pos += 1;
+        c
+    }
+
+    fn skip_whitespace(&mut self) {
+        loop {
+            if let Some(c) = self.peek()
+                && c.is_whitespace()
+            {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn parse_identifier(&mut self) -> Token {
+        let mut name = String::new();
+
+        while let Some(character) = self.peek()
+            && character.is_alphanumeric()
+        {
+            name.push(character);
+            self.advance();
+        }
+
+        match name.as_str() {
+            "let" => Token::LetKeyword,
+            _ => Token::Identifier(IdentifierToken { name }),
+        }
+    }
+
+    fn parse_numeric_literal(&mut self) -> Result<Token, String> {
+        let mut str_number = String::new();
+
+        while let Some(character) = self.peek()
+            && (character.is_digit(10) || (character == '.'))
+        {
+            str_number.push(character);
+            self.advance();
+        }
+
+        let parsed = str_number
+            .parse::<f32>()
+            .map_err(|_| format!("Failed to parse {} into f32", str_number))?;
+
+        Ok(Token::NumericLiteral(NumericLiteralToken { value: parsed }))
+    }
+
+    fn next_token(&mut self) -> Result<Token, String> {
+        self.peek()
+            .map(|character| match character {
+                character if character.is_alphabetic() => Ok(self.parse_identifier()),
+                character if character.is_digit(10) => self.parse_numeric_literal(),
+                ';' => {
+                    self.advance();
+                    Ok(Token::Semicolon)
+                }
+                '=' => {
+                    self.advance();
+                    Ok(Token::Equal)
+                }
+                '/' => {
+                    self.advance();
+                    Ok(Token::Slash)
+                }
+                '+' => {
+                    self.advance();
+                    Ok(Token::Plus)
+                }
+                '-' => {
+                    self.advance();
+                    Ok(Token::Minus)
+                }
+                '*' => {
+                    self.advance();
+                    Ok(Token::Star)
+                }
+                '(' => {
+                    self.advance();
+                    Ok(Token::LParen)
+                }
+                ')' => {
+                    self.advance();
+                    Ok(Token::RParen)
+                }
+                _ => Err("Invalid Character".to_string()),
+            })
+            .unwrap_or(Ok(Token::End))
+    }
+
+    pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
+        let mut tokens: Vec<Token> = vec![];
+        let mut lexer = Self {
+            pos: 0,
+            source: source.chars().collect(),
+        };
+
+        loop {
+            lexer.skip_whitespace();
+            let token = lexer.next_token()?;
+
+            if let Token::End = token {
+                tokens.push(token);
+                break;
+            }
+
+            tokens.push(token);
+        }
+
+        Ok(tokens)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_single_tokens() {
+        let source = "; / + - * ( )";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 8); // 7 tokens + End
+        assert!(matches!(tokens[0], Token::Semicolon));
+        assert!(matches!(tokens[1], Token::Slash));
+        assert!(matches!(tokens[2], Token::Plus));
+        assert!(matches!(tokens[3], Token::Minus));
+        assert!(matches!(tokens[4], Token::Star));
+        assert!(matches!(tokens[5], Token::LParen));
+        assert!(matches!(tokens[6], Token::RParen));
+        assert!(matches!(tokens[7], Token::End));
+    }
+
+    #[test]
+    fn test_numeric_literals() {
+        let source = "123 456 789 32.5";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 5); // 4 numbers + End
+        assert_eq!(tokens[0].try_as_numeric_literal().unwrap().value, 123.0);
+        assert_eq!(tokens[1].try_as_numeric_literal().unwrap().value, 456.0);
+        assert_eq!(tokens[2].try_as_numeric_literal().unwrap().value, 789.0);
+        assert_eq!(tokens[3].try_as_numeric_literal().unwrap().value, 32.5);
+
+        assert!(matches!(tokens[4], Token::End));
+    }
+
+    #[test]
+    fn test_identifiers() {
+        let source = "foo bar baz123";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 4); // 3 identifiers + End
+        assert_eq!(tokens[0].try_as_identifier().unwrap().name, "foo");
+        assert_eq!(tokens[1].try_as_identifier().unwrap().name, "bar");
+        assert_eq!(tokens[2].try_as_identifier().unwrap().name, "baz123");
+
+        assert!(matches!(tokens[3], Token::End));
+    }
+
+    #[test]
+    fn test_expression() {
+        let source = "x + 5 * (y - 2)";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 10); // 9 tokens + End
+        assert!(matches!(tokens[0], Token::Identifier(_)));
+        assert!(matches!(tokens[1], Token::Plus));
+        assert!(matches!(tokens[2], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[3], Token::Star));
+        assert!(matches!(tokens[4], Token::LParen));
+        assert!(matches!(tokens[5], Token::Identifier(_)));
+        assert!(matches!(tokens[6], Token::Minus));
+        assert!(matches!(tokens[7], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[8], Token::RParen));
+        assert!(matches!(tokens[9], Token::End));
+    }
+
+    #[test]
+    fn test_whitespace_handling() {
+        let source = "   42   +   10   ";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 4); // 42, +, 10, End
+        assert!(matches!(tokens[0], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[1], Token::Plus));
+        assert!(matches!(tokens[2], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[3], Token::End));
+    }
+
+    #[test]
+    fn test_empty_source() {
+        let source = "";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0], Token::End));
+    }
+
+    #[test]
+    fn test_only_whitespace() {
+        let source = "   \n\t  ";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0], Token::End));
+    }
+
+    #[test]
+    fn test_invalid_character() {
+        let source = "x @ y";
+        let result = Lexer::tokenize(source);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Invalid Character");
+    }
+
+    #[test]
+    fn test_invalid_point() {
+        let source = "12.34.56";
+        let result = Lexer::tokenize(source);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Failed to parse 12.34.56 into f32");
+    }
+
+    #[test]
+    fn test_semicolon_terminated() {
+        let source = "x 5;";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 4); // x, 5, ;, End
+        assert!(matches!(tokens[0], Token::Identifier(_)));
+        assert!(matches!(tokens[1], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[2], Token::Semicolon));
+        assert!(matches!(tokens[3], Token::End));
+    }
+
+    #[test]
+    fn test_division() {
+        let source = "10 / 2";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 4); // 10, /, 2, End
+        assert!(matches!(tokens[0], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[1], Token::Slash));
+        assert!(matches!(tokens[2], Token::NumericLiteral(_)));
+        assert!(matches!(tokens[3], Token::End));
+    }
+
+    #[test]
+    fn test_consecutive_numbers() {
+        let source = "123456";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].try_as_numeric_literal().unwrap().value, 123456.0);
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_no_space_between_tokens() {
+        let source = "x+y*z";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 6); // x, +, y, *, z, End
+        assert!(matches!(tokens[0], Token::Identifier(_)));
+        assert!(matches!(tokens[1], Token::Plus));
+        assert!(matches!(tokens[2], Token::Identifier(_)));
+        assert!(matches!(tokens[3], Token::Star));
+        assert!(matches!(tokens[4], Token::Identifier(_)));
+        assert!(matches!(tokens[5], Token::End));
+    }
+}
