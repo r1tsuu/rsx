@@ -177,7 +177,10 @@ impl Lexer {
                     self.advance();
                     Ok(Token::RBracket)
                 }
-                _ => Err(EngineError::lexer("Invalid character")),
+                _ => Err(EngineError::lexer(format!(
+                    "Invalid character: {}",
+                    character
+                ))),
             })
             .unwrap_or(Ok(Token::End))
     }
@@ -306,7 +309,7 @@ mod tests {
         let result = Lexer::tokenize(source);
 
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().message(), "Invalid Character");
+        assert_eq!(result.unwrap_err().message(), "Invalid character: @");
     }
 
     #[test]
