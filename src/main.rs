@@ -1,4 +1,5 @@
 mod ast;
+mod core;
 mod lexer;
 
 fn main() {

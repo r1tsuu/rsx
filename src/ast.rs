@@ -52,18 +52,27 @@ pub struct ExpressionStatement {
 }
 
 pub struct LetStatement {
-    name: String,
-    value: Box<Expression>,
+    pub name: String,
+    pub value: Box<Expression>,
 }
 
 pub enum Statement {
     Expression(ExpressionStatement),
+    Let(LetStatement),
 }
 
 impl Statement {
     pub fn try_as_expression(&self) -> Option<&ExpressionStatement> {
         match self {
             Statement::Expression(stmt) => Some(stmt),
+            _ => None,
+        }
+    }
+
+    pub fn try_as_let(&self) -> Option<&LetStatement> {
+        match self {
+            Statement::Let(stmt) => Some(stmt),
+            _ => None,
         }
     }
 }
@@ -147,10 +156,26 @@ impl ASTParser {
         expr
     }
 
-    fn parse_statement(&mut self) -> Statement {
-        Statement::Expression(ExpressionStatement {
-            expression: Box::new(self.parse_expression()),
-        })
+    fn parse_statement(&mut self) -> Result<Statement, String> {
+        match self.peek_token().unwrap() {
+            Token::LetKeyword => {
+                self.advance_token();
+                if let Some(token) = self.advance_token()
+                    && let Token::Identifier(identifier_token) = token
+                {
+                    self.advance_token();
+                    Ok(Statement::Let(LetStatement {
+                        name: identifier_token.name,
+                        value: Box::new(self.parse_expression()),
+                    }))
+                } else {
+                    Err("Expected identifier and a statement after let".to_string())
+                }
+            }
+            _ => Ok(Statement::Expression(ExpressionStatement {
+                expression: Box::new(self.parse_expression()),
+            })),
+        }
     }
 
     pub fn parse_from_tokens(tokens: Vec<Token>) -> Result<Vec<Statement>, String> {
@@ -160,7 +185,7 @@ impl ASTParser {
         while let Some(token) = ast.peek_token()
             && !matches!(token, Token::End)
         {
-            let statement = ast.parse_statement();
+            let statement = ast.parse_statement()?;
 
             result.push(statement);
 
@@ -355,5 +380,29 @@ mod tests {
         // Left side should be a Binary expression (a * b)
         assert!(matches!(*expr.left, Expression::Binary(_)));
         assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+    }
+
+    #[test]
+    fn test_parse_let_statement() {
+        let result = ASTParser::parse_from_source("let x = 42;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_let().unwrap();
+        assert_eq!(stmt.name, "x");
+
+        let expr = stmt.value.try_as_numeric_literal().unwrap();
+        assert_eq!(expr.value, 42.0);
+    }
+
+    #[test]
+    fn test_parse_let_with_expression() {
+        let result = ASTParser::parse_from_source("let y = 10 + 5;").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_let().unwrap();
+        assert_eq!(stmt.name, "y");
+
+        let expr = stmt.value.try_as_binary().unwrap();
+        assert!(matches!(expr.operator, Token::Plus));
     }
 }
