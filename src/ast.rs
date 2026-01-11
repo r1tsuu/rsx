@@ -1,4 +1,7 @@
-use crate::lexer::{Lexer, Token};
+use crate::{
+    error::EngineError,
+    lexer::{Lexer, Token},
+};
 
 #[derive(Debug)]
 pub struct BinaryExpression {
@@ -18,10 +21,17 @@ pub struct NumericLiteralExpression {
 }
 
 #[derive(Debug)]
+pub struct ElementAccessExpression {
+    pub expression: Box<Expression>,
+    pub element: Box<Expression>,
+}
+
+#[derive(Debug)]
 pub enum Expression {
     Binary(BinaryExpression),
     Identifier(IdentifierExpression),
     NumericLiteral(NumericLiteralExpression),
+    ElementAccess(ElementAccessExpression),
 }
 
 impl Expression {
@@ -42,6 +52,13 @@ impl Expression {
     pub fn try_as_numeric_literal(&self) -> Option<&NumericLiteralExpression> {
         match self {
             Expression::NumericLiteral(expr) => Some(expr),
+            _ => None,
+        }
+    }
+
+    pub fn try_as_element_access(&self) -> Option<&ElementAccessExpression> {
+        match self {
+            Expression::ElementAccess(expr) => Some(expr),
             _ => None,
         }
     }
@@ -103,6 +120,7 @@ impl ASTParser {
             }
             Token::Identifier(token) => {
                 self.advance_token();
+
                 Expression::Identifier(IdentifierExpression { name: token.name })
             }
             Token::LParen => {
@@ -156,7 +174,7 @@ impl ASTParser {
         expr
     }
 
-    fn parse_statement(&mut self) -> Result<Statement, String> {
+    fn parse_statement(&mut self) -> Result<Statement, EngineError> {
         match self.peek_token().unwrap() {
             Token::LetKeyword => {
                 self.advance_token();
@@ -169,7 +187,9 @@ impl ASTParser {
                         value: Box::new(self.parse_expression()),
                     }))
                 } else {
-                    Err("Expected identifier and a statement after let".to_string())
+                    Err(EngineError::ast(
+                        "Expected identifier and a statement after let",
+                    ))
                 }
             }
             _ => Ok(Statement::Expression(ExpressionStatement {
@@ -178,7 +198,7 @@ impl ASTParser {
         }
     }
 
-    pub fn parse_from_tokens(tokens: Vec<Token>) -> Result<Vec<Statement>, String> {
+    pub fn parse_from_tokens(tokens: Vec<Token>) -> Result<Vec<Statement>, EngineError> {
         let mut ast = Self { pos: 0, tokens };
         let mut result: Vec<Statement> = vec![];
 
@@ -192,7 +212,7 @@ impl ASTParser {
             if let Some(token) = ast.peek_token()
                 && !matches!(token, Token::Semicolon)
             {
-                return Err("Expected a semicolon".to_string());
+                return Err(EngineError::ast("Expected a semicolon"));
             }
 
             ast.advance_token();
@@ -201,7 +221,7 @@ impl ASTParser {
         Ok(result)
     }
 
-    pub fn parse_from_source(source: &str) -> Result<Vec<Statement>, String> {
+    pub fn parse_from_source(source: &str) -> Result<Vec<Statement>, EngineError> {
         let tokens = Lexer::tokenize(source)?;
         Self::parse_from_tokens(tokens)
     }
@@ -404,5 +424,78 @@ mod tests {
 
         let expr = stmt.value.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Plus));
+    }
+
+    #[test]
+    fn test_parse_element_access_numeric() {
+        let result = ASTParser::parse_from_source("arr[0];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_element_access().unwrap();
+
+        let id = expr.expression.try_as_identifier().unwrap();
+        assert_eq!(id.name, "arr");
+
+        let num = expr.element.try_as_numeric_literal().unwrap();
+        assert_eq!(num.value, 0.0);
+    }
+
+    #[test]
+    fn test_parse_element_access_identifier() {
+        let result = ASTParser::parse_from_source("obj[key];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_element_access().unwrap();
+
+        let obj_id = expr.expression.try_as_identifier().unwrap();
+        assert_eq!(obj_id.name, "obj");
+
+        let key_id = expr.element.try_as_identifier().unwrap();
+        assert_eq!(key_id.name, "key");
+    }
+
+    #[test]
+    fn test_parse_element_access_expression() {
+        let result = ASTParser::parse_from_source("arr[i + 1];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_element_access().unwrap();
+
+        assert!(matches!(*expr.expression, Expression::Identifier(_)));
+        assert!(matches!(*expr.element, Expression::Binary(_)));
+    }
+
+    #[test]
+    fn test_parse_chained_element_access() {
+        let result = ASTParser::parse_from_source("matrix[0][1];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_element_access().unwrap();
+
+        // Outer access should have element 1
+        let num = expr.element.try_as_numeric_literal().unwrap();
+        assert_eq!(num.value, 1.0);
+
+        // Inner expression should be another element access
+        let inner = expr.expression.try_as_element_access().unwrap();
+        inner.expression.try_as_identifier().unwrap();
+        inner.element.try_as_numeric_literal().unwrap();
+    }
+
+    #[test]
+    fn test_parse_element_access_in_expression() {
+        let result = ASTParser::parse_from_source("arr[0] + arr[1];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let expr = stmt.expression.try_as_binary().unwrap();
+
+        assert!(matches!(expr.operator, Token::Plus));
+        assert!(matches!(*expr.left, Expression::ElementAccess(_)));
+        assert!(matches!(*expr.right, Expression::ElementAccess(_)));
     }
 }

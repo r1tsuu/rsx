@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     ast::{ASTParser, Expression, Statement},
+    error::EngineError,
     lexer::Token,
 };
 
@@ -82,7 +83,6 @@ impl Scope {
 
 struct ExecutionContext {
     scopes: Vec<Scope>,
-    stack: Vec<JSValue>,
 }
 
 impl ExecutionContext {
@@ -95,7 +95,6 @@ impl ExecutionContext {
 
         Self {
             scopes: vec![global_scope],
-            stack: vec![],
         }
     }
 
@@ -111,14 +110,6 @@ impl ExecutionContext {
         self.scopes.last_mut().unwrap()
     }
 
-    fn get_undefined(&self) -> JSValue {
-        self.get_global_scope()
-            .variables
-            .get("undefined")
-            .unwrap()
-            .clone()
-    }
-
     fn get_variable(&self, name: &str) -> JSValue {
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.variables.get(name) {
@@ -126,63 +117,42 @@ impl ExecutionContext {
             }
         }
 
-        self.get_undefined()
+        JSValue::Undefined
     }
 
     fn set_variable(&mut self, name: String, value: JSValue) {
         self.get_current_scope_mut().variables.insert(name, value);
     }
 
-    fn stack_push(&mut self, value: JSValue) {
-        self.stack.push(value)
-    }
-
-    fn stack_pop(&mut self) -> JSValue {
-        self.stack.pop().unwrap()
-    }
-
-    pub fn execute_expression(&mut self, expression: &Expression) {
+    pub fn execute_expression(&mut self, expression: &Expression) -> JSValue {
         match expression {
-            Expression::Identifier(identifier) => {
-                self.stack_push(self.get_variable(&identifier.name).clone())
-            }
+            Expression::Identifier(identifier) => self.get_variable(&identifier.name),
             Expression::Binary(binary) => {
-                self.execute_expression(&binary.left);
-                let left = self.stack_pop();
-                self.execute_expression(&binary.right);
-                let right = self.stack_pop();
+                let left = self.execute_expression(&binary.left);
+                let right = self.execute_expression(&binary.right);
 
                 match binary.operator {
-                    Token::Plus => {
-                        self.stack_push(left.add(&right));
-                    }
-                    Token::Minus => {
-                        self.stack_push(left.sub(&right));
-                    }
-                    Token::Star => {
-                        self.stack_push(left.multiply(&right));
-                    }
-                    Token::Slash => {
-                        self.stack_push(left.divide(&right));
-                    }
+                    Token::Plus => left.add(&right),
+                    Token::Minus => left.sub(&right),
+                    Token::Star => left.multiply(&right),
+                    Token::Slash => left.divide(&right),
                     _ => unimplemented!(),
                 }
             }
-            Expression::NumericLiteral(numeric) => {
-                self.stack_push(JSValue::Number(numeric.value));
-            }
+            Expression::NumericLiteral(numeric) => JSValue::Number(numeric.value),
+            _ => unimplemented!(),
         }
     }
 
-    pub fn execute_statement(&mut self, statement: &Statement) {
+    pub fn execute_statement(&mut self, statement: &Statement) -> JSValue {
         match statement {
             Statement::Let(let_statement) => {
-                self.execute_expression(&let_statement.value);
-                let value = self.stack_pop();
+                let value = self.execute_expression(&let_statement.value);
                 self.set_variable(let_statement.name.clone(), value);
+                JSValue::Undefined
             }
             Statement::Expression(expression_statement) => {
-                self.execute_expression(&expression_statement.expression);
+                self.execute_expression(&expression_statement.expression)
             }
             _ => {
                 unimplemented!()
@@ -191,20 +161,20 @@ impl ExecutionContext {
     }
 }
 
-pub fn evaluate_source(source: &str) -> Result<JSValue, String> {
+pub fn evaluate_source(source: &str) -> Result<JSValue, EngineError> {
     let ast = ASTParser::parse_from_source(source)?;
     let mut ctx = ExecutionContext::new();
 
-    for statement in ast.iter() {
-        ctx.execute_statement(statement);
-    }
-
-    Ok(ctx.stack_pop())
+    Ok(ast
+        .iter()
+        .map(|statement| ctx.execute_statement(statement))
+        .last()
+        .unwrap_or(JSValue::Undefined))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::core::evaluate_source;
 
     #[test]
     fn test_evaluate_numeric_literal() {

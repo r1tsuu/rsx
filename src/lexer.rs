@@ -1,3 +1,5 @@
+use crate::error::EngineError;
+
 #[derive(Debug, Clone)]
 pub struct IdentifierToken {
     pub name: String,
@@ -92,7 +94,7 @@ impl Lexer {
         }
     }
 
-    fn parse_numeric_literal(&mut self) -> Result<Token, String> {
+    fn parse_numeric_literal(&mut self) -> Result<Token, EngineError> {
         let mut str_number = String::new();
 
         while let Some(character) = self.peek()
@@ -104,12 +106,12 @@ impl Lexer {
 
         let parsed = str_number
             .parse::<f32>()
-            .map_err(|_| format!("Failed to parse {} into f32", str_number))?;
+            .map_err(|_| EngineError::lexer(format!("Failed to parse {} into f32", str_number)))?;
 
         Ok(Token::NumericLiteral(NumericLiteralToken { value: parsed }))
     }
 
-    fn next_token(&mut self) -> Result<Token, String> {
+    fn next_token(&mut self) -> Result<Token, EngineError> {
         self.peek()
             .map(|character| match character {
                 character if character.is_alphabetic() => Ok(self.parse_identifier()),
@@ -170,12 +172,12 @@ impl Lexer {
                     self.advance();
                     Ok(Token::RBracket)
                 }
-                _ => Err("Invalid Character".to_string()),
+                _ => Err(EngineError::lexer("Invalid character")),
             })
             .unwrap_or(Ok(Token::End))
     }
 
-    pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
+    pub fn tokenize(source: &str) -> Result<Vec<Token>, EngineError> {
         let mut tokens: Vec<Token> = vec![];
         let mut lexer = Self {
             pos: 0,
@@ -299,7 +301,7 @@ mod tests {
         let result = Lexer::tokenize(source);
 
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Invalid Character");
+        assert_eq!(result.unwrap_err().message(), "Invalid Character");
     }
 
     #[test]
@@ -308,7 +310,10 @@ mod tests {
         let result = Lexer::tokenize(source);
 
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Failed to parse 12.34.56 into f32");
+        assert_eq!(
+            result.unwrap_err().message(),
+            "Failed to parse 12.34.56 into f32"
+        );
     }
 
     #[test]
