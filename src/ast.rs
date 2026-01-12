@@ -161,12 +161,18 @@ pub struct IfStatement {
 }
 
 #[derive(Debug, Clone)]
+pub struct ReturnStatement {
+    pub expression: Box<Expression>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
     Expression(ExpressionStatement),
     Let(LetStatement),
     Block(BlockStatement),
     FunctionDefinition(FunctionDefinitionStatement),
     If(IfStatement),
+    Return(ReturnStatement),
 }
 
 impl Statement {
@@ -204,12 +210,20 @@ impl Statement {
             _ => None,
         }
     }
+
+    pub fn try_as_return(&self) -> Option<&ReturnStatement> {
+        match self {
+            Statement::Return(stmt) => Some(stmt),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct ASTParser {
     tokens: Vec<Token>,
     pos: usize,
+    inside_function: bool,
 }
 
 impl ASTParser {
@@ -623,6 +637,18 @@ impl ASTParser {
                     ))
                 }
             }
+            Token::ReturnKeyword => {
+                if !self.inside_function {
+                    return Err(EngineError::ast(
+                        "ReturnKeyword is allowed only within a function body",
+                    ));
+                }
+
+                self.advance_token();
+                Ok(Statement::Return(ReturnStatement {
+                    expression: Box::new(self.parse_expression()?),
+                }))
+            }
             Token::IfKeyword => {
                 self.advance_token();
                 let condition = self.parse_expression()?;
@@ -700,7 +726,10 @@ impl ASTParser {
                     }
                 }
 
+                let prev_inside_function = self.inside_function;
+                self.inside_function = true;
                 let body = self.parse_statement()?;
+                self.inside_function = prev_inside_function;
 
                 let Statement::Block(block) = body else {
                     return Err(EngineError::ast(format!(
@@ -789,7 +818,11 @@ impl ASTParser {
     }
 
     pub fn parse_from_tokens(tokens: Vec<Token>) -> Result<Vec<Statement>, EngineError> {
-        let mut ast = Self { pos: 0, tokens };
+        let mut ast = Self {
+            pos: 0,
+            tokens,
+            inside_function: false,
+        };
         ast.parse_statements()
     }
 
@@ -1985,5 +2018,90 @@ mod tests {
 
         assert!(then_block.body[0].try_as_let().is_some());
         assert!(then_block.body[1].try_as_let().is_some());
+    }
+
+    #[test]
+    fn test_parse_return_statement() {
+        let result = ASTParser::parse_from_source("function foo() { return x; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let func = result[0].try_as_function_definition().unwrap();
+        assert_eq!(func.block.body.len(), 1);
+
+        let ret_stmt = func.block.body[0].try_as_return().unwrap();
+        let expr = ret_stmt.expression.try_as_identifier().unwrap();
+        assert_eq!(expr.name, "x");
+    }
+
+    #[test]
+    fn test_parse_return_with_expression() {
+        let result = ASTParser::parse_from_source("function foo() { return x + 1; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let func = result[0].try_as_function_definition().unwrap();
+        let ret_stmt = func.block.body[0].try_as_return().unwrap();
+        assert!(matches!(*ret_stmt.expression, Expression::Binary(_)));
+    }
+
+    #[test]
+    fn test_parse_return_numeric() {
+        let result = ASTParser::parse_from_source("function foo() { return 42; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let func = result[0].try_as_function_definition().unwrap();
+        let ret_stmt = func.block.body[0].try_as_return().unwrap();
+        let num = ret_stmt.expression.try_as_numeric_literal().unwrap();
+        assert_eq!(num.value, 42.0);
+    }
+
+    #[test]
+    fn test_parse_return_outside_function_error() {
+        let result = ASTParser::parse_from_source("return 42;").unwrap_err();
+        assert!(
+            result
+                .message()
+                .contains("ReturnKeyword is allowed only within a function body")
+        );
+    }
+
+    #[test]
+    fn test_parse_return_in_function() {
+        let result = ASTParser::parse_from_source("function foo() { return a * b + c; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let func = result[0].try_as_function_definition().unwrap();
+        let ret_stmt = func.block.body[0].try_as_return().unwrap();
+        let binary = ret_stmt.expression.try_as_binary().unwrap();
+        assert!(matches!(binary.operator, Token::Plus));
+    }
+
+    #[test]
+    fn test_parse_return_function_call() {
+        let result = ASTParser::parse_from_source("function bar() { return foo(); }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let func = result[0].try_as_function_definition().unwrap();
+        let ret_stmt = func.block.body[0].try_as_return().unwrap();
+        let call = ret_stmt.expression.try_as_function_call().unwrap();
+        let func_id = call.function.try_as_identifier().unwrap();
+        assert_eq!(func_id.name, "foo");
+    }
+
+    #[test]
+    fn test_parse_multiple_returns_in_if() {
+        let result = ASTParser::parse_from_source(
+            "function foo() { if (x) { return 1; } else { return 2; } }",
+        )
+        .unwrap();
+        assert_eq!(result.len(), 1);
+
+        let func = result[0].try_as_function_definition().unwrap();
+        let if_stmt = func.block.body[0].try_as_if().unwrap();
+
+        let then_block = if_stmt.then.try_as_block().unwrap();
+        assert!(then_block.body[0].try_as_return().is_some());
+
+        let else_block = if_stmt.else_.as_ref().unwrap().try_as_block().unwrap();
+        assert!(else_block.body[0].try_as_return().is_some());
     }
 }
