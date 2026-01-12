@@ -16,6 +16,8 @@ pub enum Token {
     NumericLiteral(NumericLiteralToken),
     Equal,
     LetKeyword,
+    IfKeyword,
+    ElseKeyword,
     FunctionKeyword,
     ReturnKeyword,
     Semicolon,
@@ -105,6 +107,8 @@ impl Lexer {
             "let" => Token::LetKeyword,
             "function" => Token::FunctionKeyword,
             "return" => Token::ReturnKeyword,
+            "if" => Token::IfKeyword,
+            "else" => Token::ElseKeyword,
             _ => Token::Identifier(IdentifierToken { name }),
         }
     }
@@ -739,5 +743,25 @@ mod tests {
         assert!(matches!(tokens[1], Token::Equal));
         assert!(matches!(tokens[2], Token::NumericLiteral(_)));
         assert!(matches!(tokens[3], Token::End));
+    }
+
+    #[test]
+    fn test_if_keyword() {
+        let source = "if";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // if, End
+        assert!(matches!(tokens[0], Token::IfKeyword));
+        assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_else_keyword() {
+        let source = "else";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 2); // else, End
+        assert!(matches!(tokens[0], Token::ElseKeyword));
+        assert!(matches!(tokens[1], Token::End));
     }
 }

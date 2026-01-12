@@ -623,6 +623,25 @@ impl ASTParser {
                     ))
                 }
             }
+            Token::IfKeyword => {
+                self.advance_token();
+                let condition = self.parse_expression()?;
+                let then = self.parse_statement()?;
+                let mut else_: Option<Box<Statement>> = None;
+
+                if let Some(next) = self.peek_token()
+                    && matches!(next, Token::ElseKeyword)
+                {
+                    self.advance_token();
+                    else_ = Some(Box::new(self.parse_statement()?));
+                }
+
+                Ok(Statement::If(IfStatement {
+                    condition: Box::new(condition),
+                    then: Box::new(then),
+                    else_,
+                }))
+            }
             Token::FunctionKeyword => {
                 self.advance_token();
 
