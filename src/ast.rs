@@ -597,13 +597,13 @@ impl ASTParser {
         Ok(expr)
     }
 
-    fn parse_assigment(&mut self) -> Result<Expression, EngineError> {
+    fn parse_assignment(&mut self) -> Result<Expression, EngineError> {
         let mut expr = self.parse_logical_or()?;
 
         if let Some(Token::Equal) = self.peek_token() {
             self.advance_token();
 
-            let value = self.parse_assigment()?;
+            let value = self.parse_assignment()?;
 
             expr = Expression::Binary(BinaryExpression {
                 left: Box::new(expr),
@@ -616,7 +616,7 @@ impl ASTParser {
     }
 
     fn parse_expression(&mut self) -> Result<Expression, EngineError> {
-        self.parse_assigment()
+        self.parse_assignment()
     }
 
     fn parse_statement(&mut self) -> Result<Statement, EngineError> {
