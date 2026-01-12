@@ -154,11 +154,19 @@ pub struct FunctionDefinitionStatement {
 }
 
 #[derive(Debug, Clone)]
+pub struct IfStatement {
+    pub condition: Box<Expression>,
+    pub then: Box<Statement>,
+    pub else_: Option<Box<Statement>>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
     Expression(ExpressionStatement),
     Let(LetStatement),
     Block(BlockStatement),
     FunctionDefinition(FunctionDefinitionStatement),
+    If(IfStatement),
 }
 
 impl Statement {
@@ -186,6 +194,13 @@ impl Statement {
     pub fn try_as_function_definition(&self) -> Option<&FunctionDefinitionStatement> {
         match self {
             Statement::FunctionDefinition(stmt) => Some(stmt),
+            _ => None,
+        }
+    }
+
+    pub fn try_as_if(&self) -> Option<&IfStatement> {
+        match self {
+            Statement::If(stmt) => Some(stmt),
             _ => None,
         }
     }
@@ -1822,5 +1837,134 @@ mod tests {
         assert!(matches!(arr.elements[0], Expression::NumericLiteral(_)));
         assert!(matches!(arr.elements[1], Expression::Identifier(_)));
         assert!(matches!(arr.elements[2], Expression::FunctionCall(_)));
+    }
+
+    #[test]
+    fn test_parse_if_statement() {
+        let result = ASTParser::parse_from_source("if (x) { 1; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let if_stmt = result[0].try_as_if().unwrap();
+
+        let cond = if_stmt.condition.try_as_identifier().unwrap();
+        assert_eq!(cond.name, "x");
+
+        let then_block = if_stmt.then.try_as_block().unwrap();
+        assert_eq!(then_block.body.len(), 1);
+
+        assert!(if_stmt.else_.is_none());
+    }
+
+    #[test]
+    fn test_parse_if_with_else() {
+        let result = ASTParser::parse_from_source("if (x) { 1; } else { 2; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let if_stmt = result[0].try_as_if().unwrap();
+
+        let cond = if_stmt.condition.try_as_identifier().unwrap();
+        assert_eq!(cond.name, "x");
+
+        let then_block = if_stmt.then.try_as_block().unwrap();
+        assert_eq!(then_block.body.len(), 1);
+
+        assert!(if_stmt.else_.is_some());
+        let else_block = if_stmt.else_.as_ref().unwrap().try_as_block().unwrap();
+        assert_eq!(else_block.body.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_if_with_else_if() {
+        let result = ASTParser::parse_from_source("if (x) { 1; } else if (y) { 2; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let if_stmt = result[0].try_as_if().unwrap();
+
+        let cond = if_stmt.condition.try_as_identifier().unwrap();
+        assert_eq!(cond.name, "x");
+
+        assert!(if_stmt.else_.is_some());
+        let else_if = if_stmt.else_.as_ref().unwrap().try_as_if().unwrap();
+
+        let else_if_cond = else_if.condition.try_as_identifier().unwrap();
+        assert_eq!(else_if_cond.name, "y");
+    }
+
+    #[test]
+    fn test_parse_if_with_complex_condition() {
+        let result = ASTParser::parse_from_source("if (x > 5) { 1; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let if_stmt = result[0].try_as_if().unwrap();
+
+        let cond = if_stmt.condition.try_as_binary().unwrap();
+        assert!(matches!(cond.operator, Token::GreaterThan));
+    }
+
+    #[test]
+    fn test_parse_if_with_logical_condition() {
+        let result = ASTParser::parse_from_source("if (x && y) { 1; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let if_stmt = result[0].try_as_if().unwrap();
+
+        let cond = if_stmt.condition.try_as_binary().unwrap();
+        assert!(matches!(cond.operator, Token::AndAnd));
+    }
+
+    #[test]
+    fn test_parse_nested_if() {
+        let result = ASTParser::parse_from_source("if (x) { if (y) { 1; } }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let outer_if = result[0].try_as_if().unwrap();
+        let outer_block = outer_if.then.try_as_block().unwrap();
+        assert_eq!(outer_block.body.len(), 1);
+
+        let inner_if = outer_block.body[0].try_as_if().unwrap();
+        let inner_cond = inner_if.condition.try_as_identifier().unwrap();
+        assert_eq!(inner_cond.name, "y");
+    }
+
+    #[test]
+    fn test_parse_if_with_expression_in_then() {
+        let result = ASTParser::parse_from_source("if (x) { x + 1; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let if_stmt = result[0].try_as_if().unwrap();
+        let then_block = if_stmt.then.try_as_block().unwrap();
+        assert_eq!(then_block.body.len(), 1);
+
+        let expr_stmt = then_block.body[0].try_as_expression().unwrap();
+        assert!(matches!(*expr_stmt.expression, Expression::Binary(_)));
+    }
+
+    #[test]
+    fn test_parse_if_else_chain() {
+        let result =
+            ASTParser::parse_from_source("if (x) { 1; } else if (y) { 2; } else { 3; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let if_stmt = result[0].try_as_if().unwrap();
+
+        assert!(if_stmt.else_.is_some());
+        let else_if = if_stmt.else_.as_ref().unwrap().try_as_if().unwrap();
+
+        assert!(else_if.else_.is_some());
+        let final_else = else_if.else_.as_ref().unwrap().try_as_block().unwrap();
+        assert_eq!(final_else.body.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_if_with_multiple_statements() {
+        let result = ASTParser::parse_from_source("if (x) { let a = 1; let b = 2; }").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let if_stmt = result[0].try_as_if().unwrap();
+        let then_block = if_stmt.then.try_as_block().unwrap();
+        assert_eq!(then_block.body.len(), 2);
+
+        assert!(then_block.body[0].try_as_let().is_some());
+        assert!(then_block.body[1].try_as_let().is_some());
     }
 }
