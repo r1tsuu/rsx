@@ -72,6 +72,51 @@ pub enum Expression {
     FunctionCall(FunctionCallExpression),
 }
 
+#[derive(Debug, Clone)]
+pub struct BlockStatement {
+    pub body: Vec<Statement>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExpressionStatement {
+    pub expression: Box<Expression>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LetStatement {
+    pub name: String,
+    pub value: Box<Expression>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionDefinitionStatement {
+    pub name: String,
+    pub arguments: Vec<String>,
+    pub block: Box<BlockStatement>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IfStatement {
+    pub condition: Box<Expression>,
+    pub then: Box<Statement>,
+    pub else_: Option<Box<Statement>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReturnStatement {
+    pub expression: Box<Expression>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Statement {
+    Expression(ExpressionStatement),
+    Let(LetStatement),
+    Block(BlockStatement),
+    FunctionDefinition(FunctionDefinitionStatement),
+    If(IfStatement),
+    Return(ReturnStatement),
+}
+
 impl Expression {
     pub fn try_as_binary(&self) -> Option<&BinaryExpression> {
         match self {
@@ -128,51 +173,6 @@ impl Expression {
             _ => None,
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockStatement {
-    pub body: Vec<Statement>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExpressionStatement {
-    pub expression: Box<Expression>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LetStatement {
-    pub name: String,
-    pub value: Box<Expression>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FunctionDefinitionStatement {
-    pub name: String,
-    pub arguments: Vec<String>,
-    pub block: Box<BlockStatement>,
-}
-
-#[derive(Debug, Clone)]
-pub struct IfStatement {
-    pub condition: Box<Expression>,
-    pub then: Box<Statement>,
-    pub else_: Option<Box<Statement>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ReturnStatement {
-    pub expression: Box<Expression>,
-}
-
-#[derive(Debug, Clone)]
-pub enum Statement {
-    Expression(ExpressionStatement),
-    Let(LetStatement),
-    Block(BlockStatement),
-    FunctionDefinition(FunctionDefinitionStatement),
-    If(IfStatement),
-    Return(ReturnStatement),
 }
 
 impl Statement {
