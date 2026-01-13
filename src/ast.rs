@@ -994,8 +994,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Plus));
-        assert!(matches!(*expr.left, Expression::NumericLiteral(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_numeric_literal().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1006,8 +1006,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Minus));
-        assert!(matches!(*expr.left, Expression::NumericLiteral(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_numeric_literal().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1018,8 +1018,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Star));
-        assert!(matches!(*expr.left, Expression::NumericLiteral(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_numeric_literal().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1030,8 +1030,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Slash));
-        assert!(matches!(*expr.left, Expression::NumericLiteral(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_numeric_literal().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1042,8 +1042,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::EqualEqual));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::Identifier(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_identifier().is_some());
     }
 
     #[test]
@@ -1054,8 +1054,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::EqualEqualEqual));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1066,8 +1066,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::BangEqual));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::Identifier(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_identifier().is_some());
     }
 
     #[test]
@@ -1078,8 +1078,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::BangEqualEqual));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1090,8 +1090,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::LessThan));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1102,8 +1102,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::LessThanEqual));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::Identifier(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_identifier().is_some());
     }
 
     #[test]
@@ -1114,8 +1114,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::GreaterThan));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1126,8 +1126,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::GreaterThanEqual));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1138,8 +1138,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::AndAnd));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::Identifier(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_identifier().is_some());
     }
 
     #[test]
@@ -1150,8 +1150,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::OrOr));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::Identifier(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_identifier().is_some());
     }
 
     #[test]
@@ -1162,8 +1162,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Equal));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1175,9 +1175,9 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Plus));
-        assert!(matches!(*expr.left, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_numeric_literal().is_some());
         // Right side should be a Binary expression (3 * 4)
-        assert!(matches!(*expr.right, Expression::Binary(_)));
+        assert!(expr.right.try_as_binary().is_some());
     }
 
     #[test]
@@ -1190,8 +1190,8 @@ mod tests {
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Star));
         // Left side should be a Binary expression (5 + 3)
-        assert!(matches!(*expr.left, Expression::Binary(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_binary().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1202,8 +1202,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Plus));
-        assert!(matches!(*expr.left, Expression::Identifier(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_identifier().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1212,10 +1212,10 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         let stmt0 = result[0].try_as_expression().unwrap();
-        assert!(matches!(*stmt0.expression, Expression::NumericLiteral(_)));
+        assert!(stmt0.expression.try_as_numeric_literal().is_some());
 
         let stmt1 = result[1].try_as_expression().unwrap();
-        assert!(matches!(*stmt1.expression, Expression::NumericLiteral(_)));
+        assert!(stmt1.expression.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1228,8 +1228,8 @@ mod tests {
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Plus));
         // Left side should be a Binary expression (1 + 2)
-        assert!(matches!(*expr.left, Expression::Binary(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_binary().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1242,8 +1242,8 @@ mod tests {
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Star));
         // Left side should be nested Binary expression
-        assert!(matches!(*expr.left, Expression::Binary(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_binary().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1256,8 +1256,8 @@ mod tests {
         let expr = stmt.expression.try_as_binary().unwrap();
         assert!(matches!(expr.operator, Token::Plus));
         // Left side should be a Binary expression (a * b)
-        assert!(matches!(*expr.left, Expression::Binary(_)));
-        assert!(matches!(*expr.right, Expression::NumericLiteral(_)));
+        assert!(expr.left.try_as_binary().is_some());
+        assert!(expr.right.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1322,8 +1322,8 @@ mod tests {
         let stmt = result[0].try_as_expression().unwrap();
         let expr = stmt.expression.try_as_element_access().unwrap();
 
-        assert!(matches!(*expr.expression, Expression::Identifier(_)));
-        assert!(matches!(*expr.element, Expression::Binary(_)));
+        assert!(expr.expression.try_as_identifier().is_some());
+        assert!(expr.element.try_as_binary().is_some());
     }
 
     #[test]
@@ -1373,8 +1373,8 @@ mod tests {
         let expr = stmt.expression.try_as_binary().unwrap();
 
         assert!(matches!(expr.operator, Token::Plus));
-        assert!(matches!(*expr.left, Expression::ElementAccess(_)));
-        assert!(matches!(*expr.right, Expression::ElementAccess(_)));
+        assert!(expr.left.try_as_element_access().is_some());
+        assert!(expr.right.try_as_element_access().is_some());
     }
 
     #[test]
@@ -1415,8 +1415,8 @@ mod tests {
         let expr = stmt.expression.try_as_binary().unwrap();
 
         assert!(matches!(expr.operator, Token::Plus));
-        assert!(matches!(*expr.left, Expression::PropertyAccess(_)));
-        assert!(matches!(*expr.right, Expression::PropertyAccess(_)));
+        assert!(expr.left.try_as_property_access().is_some());
+        assert!(expr.right.try_as_property_access().is_some());
     }
 
     #[test]
@@ -1530,10 +1530,10 @@ mod tests {
         assert_eq!(block.body.len(), 2);
 
         let stmt1 = block.body[0].try_as_expression().unwrap();
-        assert!(matches!(*stmt1.expression, Expression::Binary(_)));
+        assert!(stmt1.expression.try_as_binary().is_some());
 
         let stmt2 = block.body[1].try_as_expression().unwrap();
-        assert!(matches!(*stmt2.expression, Expression::Binary(_)));
+        assert!(stmt2.expression.try_as_binary().is_some());
     }
 
     #[test]
@@ -1548,7 +1548,7 @@ mod tests {
         assert_eq!(let_stmt.name, "x");
 
         let expr_stmt = block.body[1].try_as_expression().unwrap();
-        assert!(matches!(*expr_stmt.expression, Expression::Binary(_)));
+        assert!(expr_stmt.expression.try_as_binary().is_some());
     }
 
     #[test]
@@ -1633,7 +1633,7 @@ mod tests {
         assert_eq!(let_stmt.name, "x");
 
         let expr_stmt = func.block.body[1].try_as_expression().unwrap();
-        assert!(matches!(*expr_stmt.expression, Expression::Binary(_)));
+        assert!(expr_stmt.expression.try_as_binary().is_some());
     }
 
     #[test]
@@ -1712,9 +1712,9 @@ mod tests {
         let call = stmt.expression.try_as_function_call().unwrap();
 
         assert_eq!(call.arguments.len(), 3);
-        assert!(matches!(call.arguments[0], Expression::NumericLiteral(_)));
-        assert!(matches!(call.arguments[1], Expression::NumericLiteral(_)));
-        assert!(matches!(call.arguments[2], Expression::NumericLiteral(_)));
+        assert!(call.arguments[0].try_as_numeric_literal().is_some());
+        assert!(call.arguments[1].try_as_numeric_literal().is_some());
+        assert!(call.arguments[2].try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1726,8 +1726,8 @@ mod tests {
         let call = stmt.expression.try_as_function_call().unwrap();
 
         assert_eq!(call.arguments.len(), 2);
-        assert!(matches!(call.arguments[0], Expression::Binary(_)));
-        assert!(matches!(call.arguments[1], Expression::Binary(_)));
+        assert!(call.arguments[0].try_as_binary().is_some());
+        assert!(call.arguments[1].try_as_binary().is_some());
     }
 
     #[test]
@@ -1786,8 +1786,8 @@ mod tests {
         let binary = stmt.expression.try_as_binary().unwrap();
 
         assert!(matches!(binary.operator, Token::Plus));
-        assert!(matches!(*binary.left, Expression::FunctionCall(_)));
-        assert!(matches!(*binary.right, Expression::FunctionCall(_)));
+        assert!(binary.left.try_as_function_call().is_some());
+        assert!(binary.right.try_as_function_call().is_some());
     }
 
     #[test]
@@ -1814,7 +1814,7 @@ mod tests {
         if let ObjectPropertyName::Name(name) = &prop.name {
             assert_eq!(name, "x");
         }
-        assert!(matches!(*prop.value, Expression::NumericLiteral(_)));
+        assert!(prop.value.try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1836,14 +1836,8 @@ mod tests {
         let obj = stmt.expression.try_as_object_literal().unwrap();
         assert_eq!(obj.properties.len(), 2);
 
-        assert!(matches!(
-            *obj.properties[0].value,
-            Expression::Identifier(_)
-        ));
-        assert!(matches!(
-            *obj.properties[1].value,
-            Expression::Identifier(_)
-        ));
+        assert!(obj.properties[0].value.try_as_identifier().is_some());
+        assert!(obj.properties[1].value.try_as_identifier().is_some());
     }
 
     #[test]
@@ -1855,8 +1849,8 @@ mod tests {
         let obj = stmt.expression.try_as_object_literal().unwrap();
         assert_eq!(obj.properties.len(), 2);
 
-        assert!(matches!(*obj.properties[0].value, Expression::Binary(_)));
-        assert!(matches!(*obj.properties[1].value, Expression::Binary(_)));
+        assert!(obj.properties[0].value.try_as_binary().is_some());
+        assert!(obj.properties[1].value.try_as_binary().is_some());
     }
 
     #[test]
@@ -1871,7 +1865,7 @@ mod tests {
         let prop = &obj.properties[0];
         assert!(matches!(prop.name, ObjectPropertyName::Computed(_)));
         if let ObjectPropertyName::Computed(expr) = &prop.name {
-            assert!(matches!(**expr, Expression::Identifier(_)));
+            assert!(expr.try_as_identifier().is_some());
         }
     }
 
@@ -1897,10 +1891,7 @@ mod tests {
         let prop_access = stmt.expression.try_as_property_access().unwrap();
 
         assert_eq!(prop_access.property, "x");
-        assert!(matches!(
-            *prop_access.expression,
-            Expression::ObjectLiteral(_)
-        ));
+        assert!(prop_access.expression.try_as_object_literal().is_some());
     }
 
     #[test]
@@ -1912,10 +1903,7 @@ mod tests {
         let obj = stmt.expression.try_as_object_literal().unwrap();
         assert_eq!(obj.properties.len(), 1);
 
-        assert!(matches!(
-            *obj.properties[0].value,
-            Expression::FunctionCall(_)
-        ));
+        assert!(obj.properties[0].value.try_as_function_call().is_some());
     }
 
     #[test]
@@ -1950,9 +1938,9 @@ mod tests {
         let arr = stmt.expression.try_as_array_literal().unwrap();
         assert_eq!(arr.elements.len(), 3);
 
-        assert!(matches!(arr.elements[0], Expression::NumericLiteral(_)));
-        assert!(matches!(arr.elements[1], Expression::NumericLiteral(_)));
-        assert!(matches!(arr.elements[2], Expression::NumericLiteral(_)));
+        assert!(arr.elements[0].try_as_numeric_literal().is_some());
+        assert!(arr.elements[1].try_as_numeric_literal().is_some());
+        assert!(arr.elements[2].try_as_numeric_literal().is_some());
     }
 
     #[test]
@@ -1964,9 +1952,9 @@ mod tests {
         let arr = stmt.expression.try_as_array_literal().unwrap();
         assert_eq!(arr.elements.len(), 3);
 
-        assert!(matches!(arr.elements[0], Expression::Identifier(_)));
-        assert!(matches!(arr.elements[1], Expression::Identifier(_)));
-        assert!(matches!(arr.elements[2], Expression::Identifier(_)));
+        assert!(arr.elements[0].try_as_identifier().is_some());
+        assert!(arr.elements[1].try_as_identifier().is_some());
+        assert!(arr.elements[2].try_as_identifier().is_some());
     }
 
     #[test]
@@ -1978,8 +1966,8 @@ mod tests {
         let arr = stmt.expression.try_as_array_literal().unwrap();
         assert_eq!(arr.elements.len(), 2);
 
-        assert!(matches!(arr.elements[0], Expression::Binary(_)));
-        assert!(matches!(arr.elements[1], Expression::Binary(_)));
+        assert!(arr.elements[0].try_as_binary().is_some());
+        assert!(arr.elements[1].try_as_binary().is_some());
     }
 
     #[test]
@@ -2009,10 +1997,7 @@ mod tests {
         let num = elem_access.element.try_as_numeric_literal().unwrap();
         assert_eq!(num.value, 0.0);
 
-        assert!(matches!(
-            *elem_access.expression,
-            Expression::ArrayLiteral(_)
-        ));
+        assert!(elem_access.expression.try_as_array_literal().is_some());
     }
 
     #[test]
@@ -2024,8 +2009,8 @@ mod tests {
         let arr = stmt.expression.try_as_array_literal().unwrap();
         assert_eq!(arr.elements.len(), 2);
 
-        assert!(matches!(arr.elements[0], Expression::FunctionCall(_)));
-        assert!(matches!(arr.elements[1], Expression::FunctionCall(_)));
+        assert!(arr.elements[0].try_as_function_call().is_some());
+        assert!(arr.elements[1].try_as_function_call().is_some());
     }
 
     #[test]
@@ -2037,9 +2022,9 @@ mod tests {
         let arr = stmt.expression.try_as_array_literal().unwrap();
         assert_eq!(arr.elements.len(), 3);
 
-        assert!(matches!(arr.elements[0], Expression::NumericLiteral(_)));
-        assert!(matches!(arr.elements[1], Expression::Identifier(_)));
-        assert!(matches!(arr.elements[2], Expression::FunctionCall(_)));
+        assert!(arr.elements[0].try_as_numeric_literal().is_some());
+        assert!(arr.elements[1].try_as_identifier().is_some());
+        assert!(arr.elements[2].try_as_function_call().is_some());
     }
 
     #[test]
@@ -2139,7 +2124,7 @@ mod tests {
         assert_eq!(then_block.body.len(), 1);
 
         let expr_stmt = then_block.body[0].try_as_expression().unwrap();
-        assert!(matches!(*expr_stmt.expression, Expression::Binary(_)));
+        assert!(expr_stmt.expression.try_as_binary().is_some());
     }
 
     #[test]
@@ -2199,7 +2184,7 @@ mod tests {
             .unwrap();
 
         let ret_stmt = func.block.body[0].try_as_return().unwrap();
-        assert!(matches!(*ret_stmt.expression, Expression::Binary(_)));
+        assert!(ret_stmt.expression.try_as_binary().is_some());
     }
 
     #[test]
