@@ -74,6 +74,10 @@ impl<'exec> Object<'exec> {
         self.properties.insert(key.into(), value);
         self
     }
+
+    pub fn get_property(&self, key: &str) -> Option<JSValue<'exec>> {
+        self.properties.get(key).cloned()
+    }
 }
 
 #[derive(Clone)]
@@ -94,6 +98,18 @@ impl<'exec> JSValue<'exec> {
 
     pub fn string(str: impl Into<String>) -> JSValue<'exec> {
         JSValue::String(str.into())
+    }
+
+    pub fn function<F: FnMut(CallContext<'exec>) -> JSValue<'exec> + 'exec>(
+        prototype: ObjectRef<'exec>,
+        call: F,
+    ) -> JSValue<'exec> {
+        JSValue::Object(
+            Object::new()
+                .with_prototype(prototype.clone())
+                .with_call(call)
+                .build(),
+        )
     }
 
     pub fn from_object_ref(object_ref: ObjectRef<'exec>) -> JSValue<'exec> {
@@ -173,24 +189,13 @@ impl<'exec> Scope<'exec> {
 
 pub struct ExecutionContext<'exec> {
     pub scopes: Vec<Scope<'exec>>,
+    pub function_prototype: ObjectRef<'exec>,
+    pub object_prototype: ObjectRef<'exec>,
+    pub global_this: ObjectRef<'exec>,
 }
 
 impl<'exec> ExecutionContext<'exec> {
     pub fn new() -> Self {
-        let mut ctx = Self { scopes: vec![] };
-
-        ctx.init_global_scope();
-
-        ctx
-    }
-
-    fn init_global_scope(&mut self) {
-        let mut global_scope = Scope::new();
-
-        global_scope
-            .variables
-            .insert("undefined".to_string(), JSValue::Undefined);
-
         let object_prototype = Object::new().build();
 
         let function_prototype = Object::new()
@@ -239,12 +244,9 @@ impl<'exec> ExecutionContext<'exec> {
             .set_property("constructor", js_object_constructor.clone())
             .set_property(
                 "toString",
-                JSValue::Object(
-                    Object::new()
-                        .with_prototype(function_prototype.clone())
-                        .with_call(|_| JSValue::string("[object Object]"))
-                        .build(),
-                ),
+                JSValue::function(function_prototype.clone(), |_| {
+                    JSValue::string("[object Object]")
+                }),
             );
 
         function_prototype
@@ -257,21 +259,21 @@ impl<'exec> ExecutionContext<'exec> {
             .with_property("Function", js_function_constructor)
             .build();
 
-        let js_global_this = JSValue::Object(global_this.clone());
+        let ctx = Self {
+            scopes: vec![],
+            global_this,
+            function_prototype,
+            object_prototype,
+        };
 
-        global_this
-            .borrow_mut()
-            .set_property("globalThis", js_global_this.clone());
-
-        global_scope.define("globalThis", js_global_this);
-
-        self.scopes.push(global_scope);
+        ctx
     }
 
-    fn get_current_scope_mut(&mut self) -> &mut Scope<'exec> {
-        self.scopes.last_mut().unwrap()
-    }
-
+    /**
+     * Get the value of a variable by searching through the scopes from innermost to outermost.
+     * If the variable is not found in any scope, it attempts to retrieve it from the global object.
+     * If still not found, it returns JSValue::Undefined.
+     */
     fn get_variable(&self, name: &str) -> JSValue<'exec> {
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.variables.get(name) {
@@ -279,7 +281,18 @@ impl<'exec> ExecutionContext<'exec> {
             }
         }
 
-        JSValue::Undefined
+        self.global_this
+            .borrow()
+            .get_property(name)
+            .unwrap_or_else(|| JSValue::Undefined)
+    }
+
+    fn get_current_scope_mut(&mut self) -> &mut Scope<'exec> {
+        if self.scopes.is_empty() {
+            self.scopes.push(Scope::new());
+        }
+
+        self.scopes.last_mut().unwrap()
     }
 
     fn set_variable(&mut self, name: impl Into<String>, value: JSValue<'exec>) {

@@ -34,6 +34,7 @@ pub enum Token {
     EqualEqualEqual,
     BangEqual,
     BangEqualEqual,
+    Arrow,
     Star,
     LBrace,
     RBrace,
@@ -131,12 +132,11 @@ impl Lexer {
     }
 
     fn match_char(&mut self, expected: char) -> bool {
-        self.peek()
-            .map(|char| char == expected)
-            .inspect(|_| {
-                self.advance();
-            })
-            .unwrap_or(false)
+        let matches = self.peek().map(|char| char == expected).unwrap_or(false);
+        if matches {
+            self.advance();
+        }
+        matches
     }
 
     fn next_token(&mut self) -> Result<Token, EngineError> {
@@ -208,6 +208,10 @@ impl Lexer {
                         }
 
                         return Ok(Token::EqualEqual);
+                    }
+
+                    if self.match_char('>') {
+                        return Ok(Token::Arrow);
                     }
 
                     Ok(Token::Equal)
@@ -763,5 +767,20 @@ mod tests {
         assert_eq!(tokens.len(), 2); // else, End
         assert!(matches!(tokens[0], Token::ElseKeyword));
         assert!(matches!(tokens[1], Token::End));
+    }
+
+    #[test]
+    fn test_arrow() {
+        let source = "() => {}";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        println!("{:?}", tokens);
+        assert_eq!(tokens.len(), 6); // (, ), =>, {, }, End
+        assert!(matches!(tokens[0], Token::LParen));
+        assert!(matches!(tokens[1], Token::RParen));
+        assert!(matches!(tokens[2], Token::Arrow));
+        assert!(matches!(tokens[3], Token::LBrace));
+        assert!(matches!(tokens[4], Token::RBrace));
+        assert!(matches!(tokens[5], Token::End));
     }
 }

@@ -61,6 +61,38 @@ pub struct PropertyAccessExpression {
 }
 
 #[derive(Debug, Clone)]
+pub enum FunctionKind {
+    Named(String),
+    Anonymous,
+    Arrow,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionDefinitionExpression {
+    pub kind: FunctionKind,
+    pub arguments: Vec<String>,
+    pub block: Box<BlockStatement>,
+}
+
+impl FunctionDefinitionExpression {
+    pub fn name(&self) -> Option<String> {
+        if let FunctionKind::Named(name) = &self.kind {
+            Some(name.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn is_anonymous(&self) -> bool {
+        matches!(self.kind, FunctionKind::Anonymous)
+    }
+
+    pub fn is_arrow(&self) -> bool {
+        matches!(self.kind, FunctionKind::Arrow)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Expression {
     Binary(BinaryExpression),
     Identifier(IdentifierExpression),
@@ -70,6 +102,7 @@ pub enum Expression {
     ElementAccess(ElementAccessExpression),
     PropertyAccess(PropertyAccessExpression),
     FunctionCall(FunctionCallExpression),
+    FunctionDefinition(FunctionDefinitionExpression),
 }
 
 #[derive(Debug, Clone)]
@@ -89,13 +122,6 @@ pub struct LetStatement {
 }
 
 #[derive(Debug, Clone)]
-pub struct FunctionDefinitionStatement {
-    pub name: String,
-    pub arguments: Vec<String>,
-    pub block: Box<BlockStatement>,
-}
-
-#[derive(Debug, Clone)]
 pub struct IfStatement {
     pub condition: Box<Expression>,
     pub then: Box<Statement>,
@@ -112,12 +138,68 @@ pub enum Statement {
     Expression(ExpressionStatement),
     Let(LetStatement),
     Block(BlockStatement),
-    FunctionDefinition(FunctionDefinitionStatement),
     If(IfStatement),
     Return(ReturnStatement),
 }
 
 impl Expression {
+    pub fn binary(left: Expression, operator: Token, right: Expression) -> Expression {
+        Expression::Binary(BinaryExpression {
+            left: Box::new(left),
+            operator,
+            right: Box::new(right),
+        })
+    }
+
+    pub fn identifier(name: String) -> Expression {
+        Expression::Identifier(IdentifierExpression { name })
+    }
+
+    pub fn numeric_literal(value: f32) -> Expression {
+        Expression::NumericLiteral(NumericLiteralExpression { value })
+    }
+
+    pub fn function_call(function: Expression, arguments: Vec<Expression>) -> Expression {
+        Expression::FunctionCall(FunctionCallExpression {
+            function: Box::new(function),
+            arguments,
+        })
+    }
+
+    pub fn element_access(expression: Expression, element: Expression) -> Expression {
+        Expression::ElementAccess(ElementAccessExpression {
+            expression: Box::new(expression),
+            element: Box::new(element),
+        })
+    }
+
+    pub fn object_literal(properties: Vec<ObjectProperty>) -> Expression {
+        Expression::ObjectLiteral(ObjectLiteralExpression { properties })
+    }
+
+    pub fn array_literal(elements: Vec<Expression>) -> Expression {
+        Expression::ArrayLiteral(ArrayLiteralExpression { elements })
+    }
+
+    pub fn property_access(expression: Expression, property: String) -> Expression {
+        Expression::PropertyAccess(PropertyAccessExpression {
+            expression: Box::new(expression),
+            property,
+        })
+    }
+
+    pub fn function_definition(
+        kind: FunctionKind,
+        arguments: Vec<String>,
+        block: BlockStatement,
+    ) -> Expression {
+        Expression::FunctionDefinition(FunctionDefinitionExpression {
+            kind,
+            arguments,
+            block: Box::new(block),
+        })
+    }
+
     pub fn try_as_binary(&self) -> Option<&BinaryExpression> {
         match self {
             Expression::Binary(expr) => Some(expr),
@@ -173,9 +255,47 @@ impl Expression {
             _ => None,
         }
     }
+
+    pub fn try_as_function_definition(&self) -> Option<&FunctionDefinitionExpression> {
+        match self {
+            Expression::FunctionDefinition(stmt) => Some(stmt),
+            _ => None,
+        }
+    }
 }
 
 impl Statement {
+    pub fn expression(expression: Expression) -> Statement {
+        Statement::Expression(ExpressionStatement {
+            expression: Box::new(expression),
+        })
+    }
+
+    pub fn let_(name: String, value: Expression) -> Statement {
+        Statement::Let(LetStatement {
+            name,
+            value: Box::new(value),
+        })
+    }
+
+    pub fn block(body: Vec<Statement>) -> Statement {
+        Statement::Block(BlockStatement { body })
+    }
+
+    pub fn if_(condition: Expression, then: Statement, else_: Option<Statement>) -> Statement {
+        Statement::If(IfStatement {
+            condition: Box::new(condition),
+            then: Box::new(then),
+            else_: else_.map(Box::new),
+        })
+    }
+
+    pub fn return_(expression: Expression) -> Statement {
+        Statement::Return(ReturnStatement {
+            expression: Box::new(expression),
+        })
+    }
+
     pub fn try_as_expression(&self) -> Option<&ExpressionStatement> {
         match self {
             Statement::Expression(stmt) => Some(stmt),
@@ -193,13 +313,6 @@ impl Statement {
     pub fn try_as_block(&self) -> Option<&BlockStatement> {
         match self {
             Statement::Block(stmt) => Some(stmt),
-            _ => None,
-        }
-    }
-
-    pub fn try_as_function_definition(&self) -> Option<&FunctionDefinitionStatement> {
-        match self {
-            Statement::FunctionDefinition(stmt) => Some(stmt),
             _ => None,
         }
     }
@@ -237,18 +350,100 @@ impl ASTParser {
         token
     }
 
+    fn unadvance(&mut self) -> Option<Token> {
+        if self.pos == 0 {
+            return None;
+        }
+        self.pos -= 1;
+        self.peek_token()
+    }
+
     fn parse_primary(&mut self) -> Result<Expression, EngineError> {
         let token = self.peek_token().unwrap();
 
         let mut expr = match token {
             Token::NumericLiteral(token) => {
                 self.advance_token();
-                Expression::NumericLiteral(NumericLiteralExpression { value: token.value })
+                Expression::numeric_literal(token.value)
             }
             Token::Identifier(token) => {
                 self.advance_token();
 
-                Expression::Identifier(IdentifierExpression { name: token.name })
+                Expression::identifier(token.name)
+            }
+            Token::FunctionKeyword => {
+                self.advance_token();
+
+                let token = self.advance_token().ok_or_else(|| {
+                    EngineError::ast("Expected a token after function keyword, got: None")
+                })?;
+
+                let kind: FunctionKind;
+
+                if let Token::Identifier(identifier) = token {
+                    kind = FunctionKind::Named(identifier.name)
+                } else {
+                    kind = FunctionKind::Anonymous;
+                    self.unadvance();
+                }
+
+                let token = self.advance_token().ok_or_else(|| {
+                    EngineError::ast(
+                        "Expected LParen after function keyword and identifier, got: None",
+                    )
+                })?;
+
+                if !matches!(token, Token::LParen) {
+                    return Err(EngineError::ast(format!(
+                        "Expected LParen after function keyword and identifier, got: {:#?}",
+                        token
+                    )));
+                }
+
+                let mut arguments: Vec<String> = vec![];
+
+                loop {
+                    let token = self.advance_token().ok_or_else(|| {
+                        EngineError::ast("Expected a token in function arguments")
+                    })?;
+
+                    if matches!(token, Token::Comma) {
+                        continue;
+                    }
+
+                    if matches!(token, Token::RParen) {
+                        break;
+                    }
+
+                    if let Token::Identifier(identifier) = token {
+                        let next = self.peek_token().ok_or_else(|| {
+                        EngineError::ast("Expected a COMMA/RParen token in function arguments after identifier")
+                    })?;
+
+                        if !matches!(next, Token::Comma) && !matches!(next, Token::RParen) {
+                            return Err(EngineError::ast(format!(
+                                "Expected a COMMA/RParen token in function arguments after identifier, got: {:#?}",
+                                next
+                            )));
+                        }
+
+                        arguments.push(identifier.name.clone());
+                    }
+                }
+
+                let prev_inside_function = self.inside_function;
+                self.inside_function = true;
+                let body = self.parse_statement()?;
+                self.inside_function = prev_inside_function;
+
+                let Statement::Block(block) = body else {
+                    return Err(EngineError::ast(format!(
+                        "Expected a block after function arguments, got: {:#?}",
+                        body
+                    )));
+                };
+
+                Expression::function_definition(kind, arguments, block)
             }
             Token::LBracket => {
                 self.advance_token();
@@ -285,7 +480,7 @@ impl ASTParser {
                     }
                 }
 
-                Expression::ArrayLiteral(ArrayLiteralExpression { elements })
+                Expression::array_literal(elements)
             }
             Token::LBrace => {
                 self.advance_token();
@@ -365,27 +560,75 @@ impl ASTParser {
                     }
                 }
 
-                Expression::ObjectLiteral(ObjectLiteralExpression { properties })
+                Expression::object_literal(properties)
             }
             Token::LParen => {
                 self.advance_token();
+
+                // try arrow func
+                {
+                    let mut arrow_func_args: Vec<String> = vec![];
+                    let mut clone = self.clone();
+
+                    let mut next = clone
+                        .peek_token()
+                        .ok_or_else(|| EngineError::ast("Expected a token after LParen"))?;
+
+                    while let Token::Identifier(identifier) = &next {
+                        arrow_func_args.push(identifier.name.clone());
+                        clone.advance_token();
+                        next = clone
+                            .advance_token()
+                            .ok_or_else(|| EngineError::ast("Expected a token after LParen"))?;
+
+                        if matches!(next, Token::Comma) {
+                            next = clone
+                                .peek_token()
+                                .ok_or_else(|| EngineError::ast("Expected a token after LParen"))?;
+                        }
+                    }
+
+                    if matches!(next, Token::RParen) {
+                        clone.advance_token();
+
+                        let next = clone
+                            .peek_token()
+                            .ok_or_else(|| EngineError::ast("Expected a token after RParen"))?;
+
+                        if matches!(next, Token::Arrow) {
+                            clone.advance_token();
+                            let body = clone.parse_statement()?;
+
+                            let expression = Expression::function_definition(
+                                FunctionKind::Arrow,
+                                arrow_func_args,
+                                body.try_as_block()
+                                    .ok_or_else(|| {
+                                        EngineError::ast("Expected a block statement after ARROW")
+                                    })
+                                    .cloned()?,
+                            );
+
+                            self.pos = clone.pos;
+                            return Ok(expression);
+                        }
+                    }
+                }
+
                 let expression = self.parse_expression()?;
 
                 self.peek_token()
-                    .ok_or_else(|| EngineError::ast("Expected a token after LParent"))
+                    .ok_or_else(|| EngineError::ast("Expected a token after LParen"))
                     .and_then(|next| {
                         if matches!(next, Token::RParen) {
-                            Ok(())
+                            self.advance_token();
+                            Ok(expression)
                         } else {
                             Err(EngineError::ast(format!(
                                 "Expected RParen after expression end, got: {next:#?}"
                             )))
                         }
-                    })?;
-
-                self.advance_token();
-
-                expression
+                    })?
             }
             _ => {
                 return Err(EngineError::ast(format!(
@@ -406,10 +649,7 @@ impl ASTParser {
                     if let Some(token) = &next
                         && matches!(token, Token::RBracket)
                     {
-                        expr = Expression::ElementAccess(ElementAccessExpression {
-                            expression: Box::new(expr),
-                            element: Box::new(element),
-                        });
+                        expr = Expression::element_access(expr, element);
                     } else {
                         return Err(EngineError::ast(format!(
                             "Expected RBracket for ElementAccessExpression, got: {:#?}",
@@ -424,10 +664,7 @@ impl ASTParser {
                     if let Some(token) = &next
                         && let Token::Identifier(identifier) = token
                     {
-                        expr = Expression::PropertyAccess(PropertyAccessExpression {
-                            expression: Box::new(expr),
-                            property: identifier.name.clone(),
-                        });
+                        expr = Expression::property_access(expr, identifier.name.clone());
                     } else {
                         return Err(EngineError::ast(format!(
                             "Expected Identifier for PropertyAccessExpression, got: {:#?}",
@@ -468,10 +705,7 @@ impl ASTParser {
                         clone.advance_token();
                     }
 
-                    expr = Expression::FunctionCall(FunctionCallExpression {
-                        function: Box::new(expr),
-                        arguments,
-                    })
+                    expr = Expression::function_call(expr, arguments)
                 }
                 _ => {
                     break;
@@ -491,11 +725,7 @@ impl ASTParser {
             && (matches!(token, Token::Slash) || matches!(token, Token::Star))
         {
             self.advance_token();
-            expr = Expression::Binary(BinaryExpression {
-                left: Box::new(expr),
-                operator: token,
-                right: Box::new(self.parse_primary()?),
-            });
+            expr = Expression::binary(expr, token, self.parse_primary()?);
         }
 
         Ok(expr)
@@ -509,11 +739,7 @@ impl ASTParser {
         {
             self.advance_token();
 
-            expr = Expression::Binary(BinaryExpression {
-                left: Box::new(expr),
-                operator: token,
-                right: Box::new(self.parse_factor()?),
-            });
+            expr = Expression::binary(expr, token, self.parse_factor()?);
         }
 
         Ok(expr)
@@ -530,11 +756,7 @@ impl ASTParser {
         {
             self.advance_token();
 
-            expr = Expression::Binary(BinaryExpression {
-                left: Box::new(expr),
-                operator: token,
-                right: Box::new(self.parse_term()?),
-            });
+            expr = Expression::binary(expr, token, self.parse_term()?);
         }
 
         Ok(expr)
@@ -551,11 +773,7 @@ impl ASTParser {
         {
             self.advance_token();
 
-            expr = Expression::Binary(BinaryExpression {
-                left: Box::new(expr),
-                operator: token,
-                right: Box::new(self.parse_comparison()?),
-            });
+            expr = Expression::binary(expr, token, self.parse_comparison()?);
         }
 
         Ok(expr)
@@ -569,11 +787,7 @@ impl ASTParser {
         {
             self.advance_token();
 
-            expr = Expression::Binary(BinaryExpression {
-                left: Box::new(expr),
-                operator: token,
-                right: Box::new(self.parse_equality()?),
-            });
+            expr = Expression::binary(expr, token, self.parse_equality()?);
         }
 
         Ok(expr)
@@ -587,11 +801,7 @@ impl ASTParser {
         {
             self.advance_token();
 
-            expr = Expression::Binary(BinaryExpression {
-                left: Box::new(expr),
-                operator: token,
-                right: Box::new(self.parse_logical_and()?),
-            });
+            expr = Expression::binary(expr, token, self.parse_logical_and()?);
         }
 
         Ok(expr)
@@ -605,11 +815,7 @@ impl ASTParser {
 
             let value = self.parse_assignment()?;
 
-            expr = Expression::Binary(BinaryExpression {
-                left: Box::new(expr),
-                operator: Token::Equal,
-                right: Box::new(value),
-            })
+            expr = Expression::binary(expr, Token::Equal, value)
         }
 
         Ok(expr)
@@ -627,10 +833,10 @@ impl ASTParser {
                     && let Token::Identifier(identifier_token) = token
                 {
                     self.advance_token();
-                    Ok(Statement::Let(LetStatement {
-                        name: identifier_token.name,
-                        value: Box::new(self.parse_expression()?),
-                    }))
+                    Ok(Statement::let_(
+                        identifier_token.name,
+                        self.parse_expression()?,
+                    ))
                 } else {
                     Err(EngineError::ast(
                         "Expected identifier and a statement after let",
@@ -645,9 +851,7 @@ impl ASTParser {
                 }
 
                 self.advance_token();
-                Ok(Statement::Return(ReturnStatement {
-                    expression: Box::new(self.parse_expression()?),
-                }))
+                Ok(Statement::return_(self.parse_expression()?))
             }
             Token::IfKeyword => {
                 self.advance_token();
@@ -659,90 +863,9 @@ impl ASTParser {
                         self.advance_token();
                         self.parse_statement()
                     })
-                    .transpose()?
-                    .map(Box::new);
+                    .transpose()?;
 
-                Ok(Statement::If(IfStatement {
-                    condition: Box::new(condition),
-                    then: Box::new(then),
-                    else_,
-                }))
-            }
-            Token::FunctionKeyword => {
-                self.advance_token();
-
-                let token = self.advance_token().ok_or_else(|| {
-                    EngineError::ast("Expected an identifier after function keyword, got: None")
-                })?;
-
-                let Token::Identifier(identifier) = token else {
-                    return Err(EngineError::ast(format!(
-                        "Expected an identifier after function keyword, got: {:#?}",
-                        token
-                    )));
-                };
-
-                let token = self.advance_token().ok_or_else(|| {
-                    EngineError::ast(
-                        "Expected LParen after function keyword and identifier, got: None",
-                    )
-                })?;
-
-                if !matches!(token, Token::LParen) {
-                    return Err(EngineError::ast(format!(
-                        "Expected LParen after function keyword and identifier, got: {:#?}",
-                        token
-                    )));
-                }
-
-                let mut arguments: Vec<String> = vec![];
-
-                loop {
-                    let token = self.advance_token().ok_or_else(|| {
-                        EngineError::ast("Expected a token in function arguments")
-                    })?;
-
-                    if matches!(token, Token::Comma) {
-                        continue;
-                    }
-
-                    if matches!(token, Token::RParen) {
-                        break;
-                    }
-
-                    if let Token::Identifier(identifier) = token {
-                        let next = self.peek_token().ok_or_else(|| {
-                        EngineError::ast("Expected a COMMA/RParen token in function arguments after identifier")
-                    })?;
-
-                        if !matches!(next, Token::Comma) && !matches!(next, Token::RParen) {
-                            return Err(EngineError::ast(format!(
-                                "Expected a COMMA/RParen token in function arguments after identifier, got: {:#?}",
-                                next
-                            )));
-                        }
-
-                        arguments.push(identifier.name.clone());
-                    }
-                }
-
-                let prev_inside_function = self.inside_function;
-                self.inside_function = true;
-                let body = self.parse_statement()?;
-                self.inside_function = prev_inside_function;
-
-                let Statement::Block(block) = body else {
-                    return Err(EngineError::ast(format!(
-                        "Expected a block after function arguments, got: {:#?}",
-                        body
-                    )));
-                };
-
-                Ok(Statement::FunctionDefinition(FunctionDefinitionStatement {
-                    name: identifier.name,
-                    arguments,
-                    block: Box::new(block),
-                }))
+                Ok(Statement::if_(condition, then, else_))
             }
             Token::LBrace => {
                 let mut statements: Vec<Statement> = vec![];
@@ -782,11 +905,9 @@ impl ASTParser {
                     self.advance_token();
                 }
 
-                Ok(Statement::Block(BlockStatement { body: statements }))
+                Ok(Statement::block(statements))
             }
-            _ => Ok(Statement::Expression(ExpressionStatement {
-                expression: Box::new(self.parse_expression()?),
-            })),
+            _ => Ok(Statement::expression(self.parse_expression()?)),
         }
     }
 
@@ -1435,8 +1556,12 @@ mod tests {
         let result = ASTParser::parse_from_source("function foo() { }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
-        assert_eq!(func.name, "foo");
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
+        assert_eq!(func.name().unwrap(), "foo");
         assert_eq!(func.arguments.len(), 0);
         assert_eq!(func.block.body.len(), 0);
     }
@@ -1446,8 +1571,12 @@ mod tests {
         let result = ASTParser::parse_from_source("function add(x) { }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
-        assert_eq!(func.name, "add");
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
+        assert_eq!(func.name().unwrap(), "add");
         assert_eq!(func.arguments.len(), 1);
         assert_eq!(func.arguments[0], "x");
     }
@@ -1457,8 +1586,12 @@ mod tests {
         let result = ASTParser::parse_from_source("function add(x, y) { }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
-        assert_eq!(func.name, "add");
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
+        assert_eq!(func.name().unwrap(), "add");
         assert_eq!(func.arguments.len(), 2);
         assert_eq!(func.arguments[0], "x");
         assert_eq!(func.arguments[1], "y");
@@ -1469,8 +1602,12 @@ mod tests {
         let result = ASTParser::parse_from_source("function test() { let x = 1; }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
-        assert_eq!(func.name, "test");
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
+        assert_eq!(func.name().unwrap(), "test");
         assert_eq!(func.block.body.len(), 1);
 
         let stmt = func.block.body[0].try_as_let().unwrap();
@@ -1483,8 +1620,12 @@ mod tests {
             ASTParser::parse_from_source("function calc(a, b) { let x = a + b; x * 2; }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
-        assert_eq!(func.name, "calc");
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
+        assert_eq!(func.name().unwrap(), "calc");
         assert_eq!(func.arguments.len(), 2);
         assert_eq!(func.block.body.len(), 2);
 
@@ -1501,14 +1642,20 @@ mod tests {
             ASTParser::parse_from_source("function outer() { function inner() { } }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let outer_func = result[0].try_as_function_definition().unwrap();
-        assert_eq!(outer_func.name, "outer");
+        let outer_func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
+        assert_eq!(outer_func.name().unwrap(), "outer");
         assert_eq!(outer_func.block.body.len(), 1);
 
         let inner_func = outer_func.block.body[0]
-            .try_as_function_definition()
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
             .unwrap();
-        assert_eq!(inner_func.name, "inner");
+
+        assert_eq!(inner_func.name().unwrap(), "inner");
     }
 
     #[test]
@@ -1516,7 +1663,11 @@ mod tests {
         let result = ASTParser::parse_from_source("function test(a, b, c) { }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
         assert_eq!(func.arguments.len(), 3);
         assert_eq!(func.arguments[0], "a");
         assert_eq!(func.arguments[1], "b");
@@ -2025,7 +2176,11 @@ mod tests {
         let result = ASTParser::parse_from_source("function foo() { return x; }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
         assert_eq!(func.block.body.len(), 1);
 
         let ret_stmt = func.block.body[0].try_as_return().unwrap();
@@ -2038,7 +2193,11 @@ mod tests {
         let result = ASTParser::parse_from_source("function foo() { return x + 1; }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
         let ret_stmt = func.block.body[0].try_as_return().unwrap();
         assert!(matches!(*ret_stmt.expression, Expression::Binary(_)));
     }
@@ -2048,7 +2207,11 @@ mod tests {
         let result = ASTParser::parse_from_source("function foo() { return 42; }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
         let ret_stmt = func.block.body[0].try_as_return().unwrap();
         let num = ret_stmt.expression.try_as_numeric_literal().unwrap();
         assert_eq!(num.value, 42.0);
@@ -2069,7 +2232,11 @@ mod tests {
         let result = ASTParser::parse_from_source("function foo() { return a * b + c; }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
         let ret_stmt = func.block.body[0].try_as_return().unwrap();
         let binary = ret_stmt.expression.try_as_binary().unwrap();
         assert!(matches!(binary.operator, Token::Plus));
@@ -2080,7 +2247,11 @@ mod tests {
         let result = ASTParser::parse_from_source("function bar() { return foo(); }").unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
         let ret_stmt = func.block.body[0].try_as_return().unwrap();
         let call = ret_stmt.expression.try_as_function_call().unwrap();
         let func_id = call.function.try_as_identifier().unwrap();
@@ -2095,7 +2266,11 @@ mod tests {
         .unwrap();
         assert_eq!(result.len(), 1);
 
-        let func = result[0].try_as_function_definition().unwrap();
+        let func = result[0]
+            .try_as_expression()
+            .and_then(|e| e.expression.try_as_function_definition())
+            .unwrap();
+
         let if_stmt = func.block.body[0].try_as_if().unwrap();
 
         let then_block = if_stmt.then.try_as_block().unwrap();
@@ -2103,5 +2278,153 @@ mod tests {
 
         let else_block = if_stmt.else_.as_ref().unwrap().try_as_block().unwrap();
         assert!(else_block.body[0].try_as_return().is_some());
+    }
+
+    #[test]
+    fn test_parse_anonymous_function() {
+        let result = ASTParser::parse_from_source("(function() { });").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let func = stmt.expression.try_as_function_definition().unwrap();
+
+        assert!(func.is_anonymous());
+        assert_eq!(func.name(), None);
+        assert_eq!(func.arguments.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_anonymous_function_with_params() {
+        let result = ASTParser::parse_from_source("(function(x, y) { });").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let func = stmt.expression.try_as_function_definition().unwrap();
+
+        assert!(func.is_anonymous());
+        assert_eq!(func.arguments.len(), 2);
+        assert_eq!(func.arguments[0], "x");
+        assert_eq!(func.arguments[1], "y");
+    }
+
+    #[test]
+    fn test_parse_arrow_function() {
+        let result = ASTParser::parse_from_source("(() => { });").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let func = stmt.expression.try_as_function_definition().unwrap();
+
+        assert!(func.is_arrow());
+        assert_eq!(func.name(), None);
+        assert_eq!(func.arguments.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_arrow_function_with_params() {
+        let result = ASTParser::parse_from_source("((x, y) => { });").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let func = stmt.expression.try_as_function_definition().unwrap();
+
+        assert!(func.is_arrow());
+        assert_eq!(func.arguments.len(), 2);
+        assert_eq!(func.arguments[0], "x");
+        assert_eq!(func.arguments[1], "y");
+    }
+
+    #[test]
+    fn test_parse_arrow_function_single_param() {
+        let result = ASTParser::parse_from_source("(x => { });").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let func = stmt.expression.try_as_function_definition().unwrap();
+
+        assert!(func.is_arrow());
+        assert_eq!(func.arguments.len(), 1);
+        assert_eq!(func.arguments[0], "x");
+    }
+
+    #[test]
+    fn test_parse_function_assigned_to_variable() {
+        let result = ASTParser::parse_from_source("let f = function(x) { };").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_let().unwrap();
+        assert_eq!(stmt.name, "f");
+
+        let func = stmt.value.try_as_function_definition().unwrap();
+        assert!(func.is_anonymous());
+        assert_eq!(func.arguments.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_arrow_function_assigned_to_variable() {
+        let result = ASTParser::parse_from_source("let f = (x) => { };").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_let().unwrap();
+        assert_eq!(stmt.name, "f");
+
+        let func = stmt.value.try_as_function_definition().unwrap();
+        assert!(func.is_arrow());
+        assert_eq!(func.arguments.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_function_as_argument() {
+        let result = ASTParser::parse_from_source("foo(function() { });").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let call = stmt.expression.try_as_function_call().unwrap();
+
+        assert_eq!(call.arguments.len(), 1);
+        let func = call.arguments[0].try_as_function_definition().unwrap();
+        assert!(func.is_anonymous());
+    }
+
+    #[test]
+    fn test_parse_arrow_function_as_argument() {
+        let result = ASTParser::parse_from_source("map(() => { });").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let call = stmt.expression.try_as_function_call().unwrap();
+
+        assert_eq!(call.arguments.len(), 1);
+        let func = call.arguments[0].try_as_function_definition().unwrap();
+        assert!(func.is_arrow());
+    }
+
+    #[test]
+    fn test_parse_function_in_object_property() {
+        let result = ASTParser::parse_from_source("({method: function() { }});").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let obj = stmt.expression.try_as_object_literal().unwrap();
+        assert_eq!(obj.properties.len(), 1);
+
+        let func = obj.properties[0]
+            .value
+            .try_as_function_definition()
+            .unwrap();
+        assert!(func.is_anonymous());
+    }
+
+    #[test]
+    fn test_parse_arrow_function_in_array() {
+        let result = ASTParser::parse_from_source("[(x) => { }];").unwrap();
+        assert_eq!(result.len(), 1);
+
+        let stmt = result[0].try_as_expression().unwrap();
+        let arr = stmt.expression.try_as_array_literal().unwrap();
+        assert_eq!(arr.elements.len(), 1);
+
+        let func = arr.elements[0].try_as_function_definition().unwrap();
+        assert!(func.is_arrow());
     }
 }
