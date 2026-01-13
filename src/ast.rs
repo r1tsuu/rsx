@@ -653,19 +653,19 @@ impl ASTParser {
                 self.advance_token();
                 let condition = self.parse_expression()?;
                 let then = self.parse_statement()?;
-                let mut else_: Option<Statement> = None;
 
-                if let Some(next) = self.peek_token()
-                    && matches!(next, Token::ElseKeyword)
-                {
-                    self.advance_token();
-                    else_ = Some(self.parse_statement()?);
-                }
+                let else_ = matches!(self.peek_token(), Some(Token::ElseKeyword))
+                    .then(|| {
+                        self.advance_token();
+                        self.parse_statement()
+                    })
+                    .transpose()?
+                    .map(Box::new);
 
                 Ok(Statement::If(IfStatement {
                     condition: Box::new(condition),
                     then: Box::new(then),
-                    else_: else_.map(Box::new),
+                    else_,
                 }))
             }
             Token::FunctionKeyword => {
