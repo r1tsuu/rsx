@@ -591,17 +591,11 @@ impl ASTParser {
                     }
 
                     if matches!(next, Token::RParen) {
-                        println!("Parsed arrow function args: {:#?}", arrow_func_args);
                         let next = clone
                             .advance_token()
                             .ok_or_else(|| EngineError::ast("Expected a token after RParen"))?;
 
-                        println!(
-                            "Checking for arrow function after args: {:#?}, token: {:#?}",
-                            arrow_func_args, next
-                        );
                         if matches!(next, Token::Arrow) {
-                            println!("Parsing arrow function with args: {:#?}", arrow_func_args);
                             let body = clone.parse_statement()?;
 
                             let expression = Expression::function_definition(
@@ -613,8 +607,6 @@ impl ASTParser {
                                     })
                                     .cloned()?,
                             );
-
-                            println!("Parsed arrow function: {:#?}", expression);
 
                             self.pos = clone.pos;
                             return Ok(expression);
