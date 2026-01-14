@@ -774,7 +774,6 @@ mod tests {
         let source = "() => {}";
         let tokens = Lexer::tokenize(source).unwrap();
 
-        println!("{:?}", tokens);
         assert_eq!(tokens.len(), 6); // (, ), =>, {, }, End
         assert!(matches!(tokens[0], Token::LParen));
         assert!(matches!(tokens[1], Token::RParen));
@@ -782,5 +781,25 @@ mod tests {
         assert!(matches!(tokens[3], Token::LBrace));
         assert!(matches!(tokens[4], Token::RBrace));
         assert!(matches!(tokens[5], Token::End));
+    }
+
+    #[test]
+    fn test_arrow_args() {
+        let source = "((x, y) => { });";
+        let tokens = Lexer::tokenize(source).unwrap();
+
+        assert_eq!(tokens.len(), 12); // (, (, x, ,, y, ), =>, {, }, ), ;, End
+        assert!(matches!(tokens[0], Token::LParen));
+        assert!(matches!(tokens[1], Token::LParen));
+        assert!(matches!(tokens[2], Token::Identifier(_)));
+        assert!(matches!(tokens[3], Token::Comma));
+        assert!(matches!(tokens[4], Token::Identifier(_)));
+        assert!(matches!(tokens[5], Token::RParen));
+        assert!(matches!(tokens[6], Token::Arrow));
+        assert!(matches!(tokens[7], Token::LBrace));
+        assert!(matches!(tokens[8], Token::RBrace));
+        assert!(matches!(tokens[9], Token::RParen));
+        assert!(matches!(tokens[10], Token::Semicolon));
+        assert!(matches!(tokens[11], Token::End));
     }
 }
