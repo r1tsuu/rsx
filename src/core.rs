@@ -2,6 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     ast::{ASTParser, Expression, Statement},
+    ecma::{JSClass, JSModule},
     error::EngineError,
     lexer::Token,
 };
@@ -78,6 +79,11 @@ impl<'exec> Object<'exec> {
     pub fn get_property(&self, key: &str) -> Option<JSValue<'exec>> {
         self.properties.get(key).cloned()
     }
+
+    pub fn set_prototype(&mut self, prototype: ObjectRef<'exec>) -> &mut Self {
+        self.prototype = Some(prototype);
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -119,6 +125,13 @@ impl<'exec> JSValue<'exec> {
     pub fn try_as_object(&self) -> Option<ObjectRef<'exec>> {
         match self {
             JSValue::Object(obj) => Some(obj.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn try_get_prototype(&self) -> Option<ObjectRef<'exec>> {
+        match self {
+            JSValue::Object(obj) => obj.borrow().prototype.clone(),
             _ => None,
         }
     }
@@ -189,9 +202,12 @@ impl<'exec> Scope<'exec> {
 
 pub struct ExecutionContext<'exec> {
     pub scopes: Vec<Scope<'exec>>,
-    pub function_prototype: ObjectRef<'exec>,
-    pub object_prototype: ObjectRef<'exec>,
     pub global_this: ObjectRef<'exec>,
+    pub builtin_classes: HashMap<String, Box<dyn JSClass<'exec> + 'exec>>,
+    pub built_in_listeners: HashMap<
+        String,
+        Vec<Box<dyn FnMut(&mut dyn JSClass<'exec>, &mut ExecutionContext<'exec>) + 'exec>>,
+    >,
 }
 
 impl<'exec> ExecutionContext<'exec> {
@@ -269,6 +285,20 @@ impl<'exec> ExecutionContext<'exec> {
         ctx
     }
 
+    pub fn subscribe_to_class_initialization<F>(
+        &mut self,
+        class_name: impl Into<String>,
+        listener: F,
+    ) where
+        F: FnMut(&mut dyn JSClass<'exec>, &mut ExecutionContext<'exec>) + 'exec,
+    {
+        let class_name = class_name.into();
+        self.built_in_listeners
+            .entry(class_name)
+            .or_insert_with(Vec::new)
+            .push(Box::new(listener));
+    }
+
     /**
      * Get the value of a variable by searching through the scopes from innermost to outermost.
      * If the variable is not found in any scope, it attempts to retrieve it from the global object.
@@ -293,6 +323,10 @@ impl<'exec> ExecutionContext<'exec> {
         }
 
         self.scopes.last_mut().unwrap()
+    }
+
+    pub fn get_variable_from_global(&self, name: &str) -> Option<JSValue<'exec>> {
+        self.global_this.borrow().get_property(name)
     }
 
     fn set_variable(&mut self, name: impl Into<String>, value: JSValue<'exec>) {

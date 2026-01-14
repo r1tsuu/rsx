@@ -358,6 +358,54 @@ impl ASTParser {
         self.peek_token()
     }
 
+    fn try_parse_arrow_function(&mut self) -> Result<Option<Expression>, EngineError> {
+        let mut arrow_func_args: Vec<String> = vec![];
+        let mut clone = self.clone();
+
+        let mut next = clone
+            .advance_token()
+            .ok_or_else(|| EngineError::ast("Expected a token after LParen"))?;
+
+        while let Token::Identifier(identifier) = &next {
+            arrow_func_args.push(identifier.name.clone());
+
+            next = clone
+                .advance_token()
+                .ok_or_else(|| EngineError::ast("Expected a token after LParen"))?;
+
+            if matches!(next, Token::Comma) {
+                next = clone
+                    .advance_token()
+                    .ok_or_else(|| EngineError::ast("Expected a token after LParen"))?;
+            } else {
+                break;
+            }
+        }
+
+        if matches!(next, Token::RParen) {
+            let next = clone
+                .advance_token()
+                .ok_or_else(|| EngineError::ast("Expected a token after RParen"))?;
+
+            if matches!(next, Token::Arrow) {
+                let body = clone.parse_statement()?;
+
+                let expression = Expression::function_definition(
+                    FunctionKind::Arrow,
+                    arrow_func_args,
+                    body.try_as_block()
+                        .ok_or_else(|| EngineError::ast("Expected a block statement after ARROW"))
+                        .cloned()?,
+                );
+
+                self.pos = clone.pos;
+                return Ok(Some(expression));
+            }
+        }
+
+        Ok(None)
+    }
+
     fn parse_primary(&mut self) -> Result<Expression, EngineError> {
         let token = self.peek_token().unwrap();
 
@@ -565,53 +613,9 @@ impl ASTParser {
             Token::LParen => {
                 self.advance_token();
 
-                // try arrow func
-                {
-                    let mut arrow_func_args: Vec<String> = vec![];
-                    let mut clone = self.clone();
-
-                    let mut next = clone
-                        .advance_token()
-                        .ok_or_else(|| EngineError::ast("Expected a token after LParen"))?;
-
-                    while let Token::Identifier(identifier) = &next {
-                        arrow_func_args.push(identifier.name.clone());
-
-                        next = clone
-                            .advance_token()
-                            .ok_or_else(|| EngineError::ast("Expected a token after LParen"))?;
-
-                        if matches!(next, Token::Comma) {
-                            next = clone
-                                .advance_token()
-                                .ok_or_else(|| EngineError::ast("Expected a token after LParen"))?;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    if matches!(next, Token::RParen) {
-                        let next = clone
-                            .advance_token()
-                            .ok_or_else(|| EngineError::ast("Expected a token after RParen"))?;
-
-                        if matches!(next, Token::Arrow) {
-                            let body = clone.parse_statement()?;
-
-                            let expression = Expression::function_definition(
-                                FunctionKind::Arrow,
-                                arrow_func_args,
-                                body.try_as_block()
-                                    .ok_or_else(|| {
-                                        EngineError::ast("Expected a block statement after ARROW")
-                                    })
-                                    .cloned()?,
-                            );
-
-                            self.pos = clone.pos;
-                            return Ok(expression);
-                        }
-                    }
+                // prioritize arrow function parsing
+                if let Some(arrow_func) = self.try_parse_arrow_function()? {
+                    return Ok(arrow_func);
                 }
 
                 let expression = self.parse_expression()?;
