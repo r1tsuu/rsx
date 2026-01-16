@@ -1,7 +1,7 @@
 pub mod ast;
-pub mod core;
 pub mod ecma;
 pub mod error;
 pub mod lexer;
+pub mod vm;
 
 fn main() {}

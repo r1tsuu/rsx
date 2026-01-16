@@ -93,6 +93,12 @@ impl FunctionDefinitionExpression {
 }
 
 #[derive(Debug, Clone)]
+pub struct AssignmentExpression {
+    pub left: Box<Expression>,
+    pub right: Box<Expression>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Expression {
     Binary(BinaryExpression),
     Identifier(IdentifierExpression),
