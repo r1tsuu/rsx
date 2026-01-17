@@ -65,6 +65,7 @@ pub enum Call {
 pub type Construct = NativeFunction;
 
 pub struct Object {
+    pub captured_scope: Option<usize>,
     pub properties: HashMap<String, JSValue>,
     pub prototype: Option<ObjectRef>,
     pub call: Option<Call>,
@@ -78,6 +79,7 @@ impl Object {
             prototype: None,
             call: None,
             construct: None,
+            captured_scope: None,
         }
     }
 
@@ -102,6 +104,11 @@ impl Object {
 
     pub fn with_call_ast(mut self, ast_definition: usize) -> Object {
         self.call = Some(Call::AST(ast_definition));
+        self
+    }
+
+    pub fn with_captured_scope(mut self, scope_index: usize) -> Object {
+        self.captured_scope = Some(scope_index);
         self
     }
 
@@ -141,6 +148,7 @@ pub enum JSValue {
     Number(f32),
     Undefined,
     Object(ObjectRef),
+    Boolean(bool),
 }
 
 impl JSValue {
@@ -244,6 +252,7 @@ impl JSValue {
                 .unwrap_or_else(|| Ok(Some(ObjectClass::str_fallback())))?
                 .unwrap_or_else(ObjectClass::str_fallback),
             JSValue::Undefined => "undefined".to_string(),
+            JSValue::Boolean(bool) => (if bool { "true" } else { "false" }).to_string(),
         };
 
         Ok(res)
@@ -256,13 +265,9 @@ pub struct Scope {
 
 impl Scope {
     pub fn new() -> Self {
-        Self {
+        Scope {
             variables: HashMap::new(),
         }
-    }
-
-    pub fn define(&mut self, name: impl Into<String>, value: JSValue) {
-        self.variables.insert(name.into(), value);
     }
 }
 
@@ -294,6 +299,9 @@ impl VM {
 
         vm.register_module(ObjectClass::new());
         vm.register_module(FunctionClass::new());
+        vm.register_module(ArrayClass::new());
+
+        vm.scopes.push(Scope::new());
 
         vm
     }
@@ -760,5 +768,655 @@ mod tests {
             .evaluate_source("let a = 2; let b = 3; let c = 4; a + b * c;")
             .unwrap();
         assert_eq!(result.try_as_number().unwrap(), 14.0); // 2 + (3 * 4) = 14
+    }
+
+    // Function tests
+    #[test]
+    fn test_function_definition() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function() { return 42; };
+                f();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_function_with_parameters() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let add = function(a, b) { return a + b; };
+                add(5, 3);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 8.0);
+    }
+
+    #[test]
+    fn test_function_with_multiple_parameters() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let calc = function(a, b, c) { return a + b * c; };
+                calc(2, 3, 4);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 14.0);
+    }
+
+    #[test]
+    fn test_function_closure() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let x = 10;
+                let f = function(y) { return x + y; };
+                f(5);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 15.0);
+    }
+
+    #[test]
+    fn test_function_no_parameters() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let getVal = function() { return 100; };
+                getVal();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 100.0);
+    }
+
+    #[test]
+    fn test_function_nested_calls() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let double = function(x) { return x * 2; };
+                let quad = function(x) { return double(double(x)); };
+                quad(5);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 20.0);
+    }
+
+    // Object tests
+    #[test]
+    fn test_object_literal_empty() {
+        let mut ctx = VM::new();
+        let result = ctx.evaluate_source("let obj = {}; obj;").unwrap();
+        assert!(result.try_as_object().is_some());
+    }
+
+    #[test]
+    fn test_object_literal_with_properties() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source("let obj = { x: 10, y: 20 };").unwrap();
+        let result = ctx.evaluate_source("obj.x;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 10.0);
+    }
+
+    #[test]
+    fn test_object_property_access() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let person = { age: 25 };
+                person.age;
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 25.0);
+    }
+
+    #[test]
+    fn test_object_property_assignment() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let obj = { val: 10 };
+                obj.val = 20;
+                obj.val;
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 20.0);
+    }
+
+    #[test]
+    fn test_object_nested_properties() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let obj = { a: 1, b: 2, c: 3 };
+                obj.a + obj.b + obj.c;
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 6.0);
+    }
+
+    #[test]
+    fn test_object_dynamic_property_assignment() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let obj = {};
+                obj.newProp = 42;
+                obj.newProp;
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    // Array tests
+    #[test]
+    fn test_array_literal_empty() {
+        let mut ctx = VM::new();
+        let result = ctx.evaluate_source("let arr = []; arr;").unwrap();
+        assert!(result.try_as_object().is_some());
+    }
+
+    #[test]
+    fn test_array_literal_with_elements() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source("let arr = [1, 2, 3];").unwrap();
+        let result = ctx.evaluate_source("arr[0];").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 1.0);
+    }
+
+    #[test]
+    fn test_array_element_access() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source("let arr = [10, 20, 30];").unwrap();
+        let result = ctx.evaluate_source("arr[1];").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 20.0);
+    }
+
+    #[test]
+    fn test_array_element_assignment() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let arr = [1, 2, 3];
+                arr[1] = 99;
+                arr[1];
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 99.0);
+    }
+
+    #[test]
+    fn test_array_with_expressions() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source("let arr = [1 + 1, 2 * 2, 3 + 3];")
+            .unwrap();
+        let result = ctx.evaluate_source("arr[2];").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 6.0);
+    }
+
+    #[test]
+    fn test_array_index_with_variable() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source("let arr = [10, 20, 30];").unwrap();
+        ctx.evaluate_source("let i = 2;").unwrap();
+        let result = ctx.evaluate_source("arr[i];").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 30.0);
+    }
+
+    // Return statement tests
+    #[test]
+    fn test_return_simple() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function() { return 5; };
+                f();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_return_expression() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function(x) { return x * 2; };
+                f(7);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 14.0);
+    }
+
+    #[test]
+    fn test_return_early() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function() {
+                    return 10;
+                    return 20;
+                };
+                f();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 10.0);
+    }
+
+    #[test]
+    fn test_return_from_nested_block() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function() { { return 42; } };
+                f();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_return_with_computation() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function(a, b) { return a * b + 10; };
+                f(3, 4);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 22.0);
+    }
+
+    // Block statement tests
+    #[test]
+    fn test_block_simple() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function() { return 42; };
+                f();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_block_with_variable() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function() {
+                    let x = 10;
+                    return x;
+                };
+                f();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 10.0);
+    }
+
+    #[test]
+    fn test_block_multiple_statements() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function() {
+                    let a = 5;
+                    let b = 3;
+                    return a + b;
+                };
+                f();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 8.0);
+    }
+
+    #[test]
+    fn test_block_nested() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function() {
+                    let x = 1;
+                    let y = 2;
+                    return x + y;
+                };
+                f();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_block_in_function() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function() {
+                    let x = 10;
+                    let y = 20;
+                    return 30;
+                };
+                f();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 30.0);
+    }
+
+    // Combined tests
+    #[test]
+    fn test_function_returning_object() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source(
+            r#"
+            let f = function() { return { val: 42 }; };
+        "#,
+        )
+        .unwrap();
+        let result = ctx.evaluate_source("f().val;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_function_returning_array() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source(
+            r#"
+            let f = function() { return [1, 2, 3]; };
+        "#,
+        )
+        .unwrap();
+        ctx.evaluate_source("let result = f();").unwrap();
+        let result = ctx.evaluate_source("result[1];").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 2.0);
+    }
+
+    #[test]
+    fn test_array_of_functions() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source(
+            r#"
+            let f1 = function() { return 10; };
+            let f2 = function() { return 20; };
+            let arr = [f1, f2];
+        "#,
+        )
+        .unwrap();
+        ctx.evaluate_source("let fn = arr[0];").unwrap();
+        let result = ctx.evaluate_source("fn();").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 10.0);
+    }
+
+    #[test]
+    fn test_object_with_function_property() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let obj = { method: function(x) { return x * 2; } };
+                obj.method(5);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 10.0);
+    }
+
+    #[test]
+    fn test_complex_nested_structure() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source("let obj = { arr: [1, 2, { inner: 42 }] };")
+            .unwrap();
+        ctx.evaluate_source("let arrVal = obj.arr;").unwrap();
+        ctx.evaluate_source("let innerObj = arrVal[2];").unwrap();
+        let result = ctx.evaluate_source("innerObj.inner;").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_function_with_block_and_return() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let f = function(x) {
+                    {
+                        let y = x * 2;
+                        return y + 5;
+                    }
+                };
+                f(10);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 25.0);
+    }
+
+    // Nested function tests with returns
+    #[test]
+    fn test_nested_function_simple_return() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let outer = function() {
+                    let inner = function() { return 42; };
+                    return inner();
+                };
+                outer();
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_nested_function_return_with_parameter() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let outer = function(x) {
+                    let inner = function(y) { return x + y; };
+                    return inner(10);
+                };
+                outer(5);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 15.0);
+    }
+
+    #[test]
+    fn test_nested_function_return_function() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source(
+            r#"
+            let makeAdder = function(x) {
+                let inner = function(y) {
+                    let sum = 5 + 3;
+                    return sum;
+                };
+                return inner;
+            };
+        "#,
+        )
+        .unwrap();
+        ctx.evaluate_source("let add5 = makeAdder(5);").unwrap();
+        let result = ctx.evaluate_source("add5(3);").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 8.0);
+    }
+
+    #[test]
+    fn test_nested_function_multiple_levels() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let level1 = function(a) {
+                    let level2 = function(b) {
+                        let level3 = function(c) {
+                            return a + b + c;
+                        };
+                        return level3(3);
+                    };
+                    return level2(2);
+                };
+                level1(1);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 6.0);
+    }
+
+    #[test]
+    fn test_nested_function_early_return() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let outer = function(x) {
+                    let inner = function() { return x * 2; };
+                    return inner();
+                    return 999;
+                };
+                outer(7);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 14.0);
+    }
+
+    #[test]
+    fn test_nested_function_with_computation() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let outer = function(x) {
+                    let inner = function(y) { return y * 2; };
+                    return inner(x) + 10;
+                };
+                outer(5);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 20.0);
+    }
+
+    #[test]
+    fn test_nested_function_return_nested_call() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let double = function(x) { return x * 2; };
+                let quadruple = function(x) {
+                    return double(double(x));
+                };
+                quadruple(3);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 12.0);
+    }
+
+    #[test]
+    fn test_nested_function_closure_with_return() {
+        let mut ctx = VM::new();
+        ctx.evaluate_source(
+            r#"
+            let outer = function(x) {
+                let inner = function() { return 50; };
+                return inner;
+            };
+        "#,
+        )
+        .unwrap();
+        ctx.evaluate_source("let fn = outer(5);").unwrap();
+        let result = ctx.evaluate_source("fn();").unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 50.0);
+    }
+
+    #[test]
+    fn test_nested_function_multiple_returns() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let outer = function(x) {
+                    let inner1 = function() { return x + 1; };
+                    let inner2 = function() { return x + 2; };
+                    return inner1() + inner2();
+                };
+                outer(10);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 23.0);
+    }
+
+    #[test]
+    fn test_nested_function_return_with_block() {
+        let mut ctx = VM::new();
+        let result = ctx
+            .evaluate_source(
+                r#"
+                let outer = function(x) {
+                    let inner = function(y) {
+                        let z = y + 5;
+                        return z * 2;
+                    };
+                    return inner(x);
+                };
+                outer(3);
+            "#,
+            )
+            .unwrap();
+        assert_eq!(result.try_as_number().unwrap(), 16.0);
     }
 }

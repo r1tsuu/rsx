@@ -10,7 +10,7 @@ pub trait JSModule {
 use std::rc::Rc;
 
 use crate::{
-    ast::{FunctionDefinitionExpression, Statement},
+    ast::FunctionDefinitionExpression,
     error::EngineError,
     vm::{CallContext, JSValue, NativeFunction, Object, ObjectRef, Scope, VM},
 };
@@ -118,6 +118,7 @@ impl FunctionClass {
         Object::new()
             .with_prototype(Self::prototype(vm))
             .with_call_native(call)
+            .with_captured_scope(vm.scopes.len() - 1)
     }
 
     pub fn create_from_ast(vm: &mut VM, ast: FunctionDefinitionExpression) -> Object {
@@ -127,6 +128,7 @@ impl FunctionClass {
         Object::new()
             .with_prototype(Self::prototype(vm))
             .with_call_ast(index)
+            .with_captured_scope(vm.scopes.len() - 1)
     }
 
     pub fn prototype(vm: &mut VM) -> ObjectRef {
@@ -203,11 +205,14 @@ impl ArrayClass {
         };
 
         for arg in call.args.iter() {
+            call.this
+                .load_mut(vm)
+                .set_property(&length.to_string(), arg.clone());
+
             length += 1;
 
             call.this
                 .load_mut(vm)
-                .set_property(&length.to_string(), arg.clone())
                 .set_property("length", JSValue::Number(length as f32));
         }
 
