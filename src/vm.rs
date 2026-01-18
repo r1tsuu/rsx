@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     ast::{ASTParser, Expression, FunctionDefinitionExpression, ObjectPropertyName, Statement},
-    ecma::{ArrayClass, FunctionClass, JSModule, ObjectClass, PROTOTYPE},
+    ecma::{ArrayClass, BooleanClass, FunctionClass, JSModule, ObjectClass, PROTOTYPE},
     error::EngineError,
     lexer::Token,
 };
@@ -197,6 +197,13 @@ impl JSValue {
         }
     }
 
+    pub fn try_as_boolean(&self) -> Option<bool> {
+        match self {
+            JSValue::Boolean(b) => Some(*b),
+            _ => None,
+        }
+    }
+
     pub fn add(&self, other: &JSValue) -> JSValue {
         if let JSValue::Number(self_number) = self
             && let JSValue::Number(other_number) = other
@@ -300,6 +307,7 @@ impl VM {
         vm.register_module(ObjectClass::new());
         vm.register_module(FunctionClass::new());
         vm.register_module(ArrayClass::new());
+        vm.register_module(BooleanClass::new());
 
         vm.scopes.push(Scope::new());
 
@@ -472,7 +480,15 @@ impl VM {
 
     pub fn execute_expression(&mut self, expression: &Expression) -> Result<JSValue, EngineError> {
         match expression {
-            Expression::Identifier(identifier) => Ok(self.get_variable(&identifier.name)),
+            Expression::Identifier(identifier) => {
+                let value = match identifier.name.as_str() {
+                    "true" => JSValue::Boolean(true),
+                    "false" => JSValue::Boolean(false),
+                    str => self.get_variable(str),
+                };
+
+                Ok(value)
+            }
             Expression::Binary(binary) => {
                 if matches!(binary.operator, Token::Equal) {
                     let right = self.execute_expression(&binary.right)?;
@@ -1418,5 +1434,68 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result.try_as_number().unwrap(), 16.0);
+    }
+
+    // Boolean tests
+    #[test]
+    fn test_boolean_literal_true() {
+        let mut ctx = VM::new();
+        let result = ctx.evaluate_source("true;").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), true);
+    }
+
+    #[test]
+    fn test_boolean_literal_false() {
+        let mut ctx = VM::new();
+        let result = ctx.evaluate_source("false;").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), false);
+    }
+
+    #[test]
+    fn test_boolean_constructor_with_truthy_values() {
+        let mut ctx = VM::new();
+        let result = ctx.evaluate_source("Boolean(1);").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), true);
+
+        let result = ctx.evaluate_source("Boolean('hello');").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), true);
+
+        let result = ctx.evaluate_source("Boolean({});").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), true);
+    }
+
+    #[test]
+    fn test_boolean_constructor_with_falsy_values() {
+        let mut ctx = VM::new();
+        let result = ctx.evaluate_source("Boolean(0);").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), false);
+
+        let result = ctx.evaluate_source("Boolean('');").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), false);
+    }
+
+    #[test]
+    fn test_boolean_constructor_with_undefined() {
+        let mut ctx = VM::new();
+        let result = ctx.evaluate_source("Boolean();").unwrap();
+        // Boolean() without arguments should return false, matching JavaScript behavior
+        assert_eq!(result.try_as_boolean().unwrap(), false);
+    }
+
+    #[test]
+    fn test_boolean_in_variable() {
+        let mut ctx = VM::new();
+        let result = ctx.evaluate_source("let x = true; x;").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), true);
+    }
+
+    #[test]
+    fn test_boolean_constructor_with_number() {
+        let mut ctx = VM::new();
+        let result = ctx.evaluate_source("Boolean(42);").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), true);
+
+        let result = ctx.evaluate_source("Boolean(-1);").unwrap();
+        assert_eq!(result.try_as_boolean().unwrap(), true);
     }
 }

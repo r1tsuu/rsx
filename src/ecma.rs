@@ -248,3 +248,48 @@ impl ArrayClass {
         Ok(value)
     }
 }
+
+const BOOLEAN: &str = "Boolean";
+
+pub struct BooleanClass {}
+
+impl JSModule for BooleanClass {
+    fn name(&self) -> &str {
+        BOOLEAN
+    }
+
+    fn init(&mut self, vm: &mut VM) {
+        let constructor = Object::new()
+            .with_prototype(FunctionClass::prototype(vm))
+            .with_call_native(Self::boolean_constructor_fn) // Boolean({}) = true, Boolean(0) = false, etc as in JS
+            .alloc(vm);
+
+        vm.global_this
+            .load_mut(vm)
+            .set_property(BOOLEAN, JSValue::Object(constructor.clone()));
+    }
+}
+
+impl BooleanClass {
+    pub fn new() -> impl JSModule {
+        Self {}
+    }
+
+    pub fn js_value_to_bool(value: &JSValue) -> bool {
+        match value {
+            JSValue::Undefined => false,
+            JSValue::Boolean(b) => *b,
+            JSValue::Number(n) => !n.is_nan() && *n != 0.0,
+            JSValue::String(s) => !s.is_empty(),
+            JSValue::Object(_) => true,
+        }
+    }
+
+    pub fn boolean_constructor_fn(_vm: &mut VM, call: CallContext) -> Result<JSValue, EngineError> {
+        Ok(call
+            .arg(0)
+            .map(Self::js_value_to_bool)
+            .map(JSValue::Boolean)
+            .unwrap_or_else(|| JSValue::Boolean(false)))
+    }
+}
